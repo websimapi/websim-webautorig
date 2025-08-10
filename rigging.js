@@ -35,73 +35,38 @@ export async function rigCharacter(model, markers, onProgress) {
     // 1. Create bones from markers
     const bones = [];
     const boneMap = new Map();
-    const markerPositions = new Map();
+    const markerPositions = new Map(); // Store world positions from markers
     
+    // The model is centered at the origin, so its world matrix is identity.
+    // The marker positions are effectively in the model's local space.
     for (const id of BONE_NAMES) {
         const bone = new THREE.Bone();
         bone.name = id;
-        const worldPos = markers.get(id).clone();
-        markerPositions.set(id, worldPos);
-        bone.position.copy(worldPos); // Temporarily store world position
-        bones.push(bone);
         boneMap.set(id, bone);
+        bones.push(bone);
+        markerPositions.set(id, markers.get(id).clone());
     }
 
-    // 2. Build hierarchy first
+    // 2. Build hierarchy and set local positions
     for (const [id, bone] of boneMap.entries()) {
         const parentId = Object.keys(BONE_HIERARCHY).find(p => BONE_HIERARCHY[p].children.includes(id));
         if (parentId) {
             const parentBone = boneMap.get(parentId);
             parentBone.add(bone);
-        }
-    }
-    
-    // 3. Convert positions to local space relative to parents
-    const hips = boneMap.get('hips');
-    const skeletonOrigin = markerPositions.get('hips');
-    
-    // Set hips at origin
-    hips.position.set(0, 0, 0);
-    
-    // Convert all other bones to local positions relative to their parents
-    const processedBones = new Set();
-    
-    function setBoneLocalPosition(bone) {
-        if (processedBones.has(bone.name)) return;
-        processedBones.add(bone.name);
-        
-        if (bone.name === 'hips') {
-            bone.position.set(0, 0, 0);
-        } else {
-            const worldPos = markerPositions.get(bone.name);
-            const parentBone = bone.parent;
             
-            if (parentBone && parentBone.isBone) {
-                // Ensure parent is processed first
-                setBoneLocalPosition(parentBone);
-                
-                // Update parent's world matrix
-                parentBone.updateWorldMatrix(true, false);
-                
-                // Convert world position to local position relative to parent
-                const localPos = worldPos.clone();
-                parentBone.worldToLocal(localPos);
-                bone.position.copy(localPos);
-            } else {
-                // No parent, position relative to skeleton origin
-                bone.position.copy(worldPos).sub(skeletonOrigin);
-            }
+            // Position is relative to parent bone
+            const childWorldPos = markerPositions.get(id);
+            const parentWorldPos = markerPositions.get(parentId);
+            bone.position.copy(childWorldPos).sub(parentWorldPos);
+
+        } else { // This is the root bone (hips)
+            bone.position.copy(markerPositions.get(id));
         }
-    }
-    
-    // Process all bones to set correct local positions
-    for (const bone of bones) {
-        setBoneLocalPosition(bone);
     }
 
     const skeleton = new THREE.Skeleton(bones);
 
-    // 4. Find the mesh and prepare it for skinning
+    // 3. Find the mesh and prepare it for skinning
     let targetMesh;
     model.traverse(child => {
         if (child.isMesh && !targetMesh) {
@@ -112,6 +77,14 @@ export async function rigCharacter(model, markers, onProgress) {
     if (!targetMesh) {
         throw new Error("No mesh found in the model.");
     }
+    
+    // The geometry is already in the correct local space.
+    // We just need to ensure the mesh doesn't have a world transform applied.
+    targetMesh.position.set(0,0,0);
+    targetMesh.rotation.set(0,0,0);
+    targetMesh.scale.set(1,1,1);
+    targetMesh.updateMatrixWorld(true);
+
 
     onProgress(0.4, "Computing skinning weights...");
     await new Promise(res => setTimeout(res, 200));
@@ -121,25 +94,23 @@ export async function rigCharacter(model, markers, onProgress) {
     const skinIndex = new THREE.BufferAttribute(new Uint16Array(position.count * 4), 4);
     const skinWeight = new THREE.BufferAttribute(new Float32Array(position.count * 4), 4);
 
-    // Create a temporary object to hold the skeleton for world matrix calculations
-    const tempSkeletonRoot = new THREE.Object3D();
-    tempSkeletonRoot.position.copy(skeletonOrigin);
-    tempSkeletonRoot.add(hips);
-    
-    // Update all world matrices
-    tempSkeletonRoot.updateMatrixWorld(true);
-    
-    // Get world positions of all bones
+    // Get world positions of all bones for weight calculation.
+    // We need to add the root bone to a temporary object to calculate world matrices.
+    const hips = boneMap.get('hips');
+    const tempScene = new THREE.Scene();
+    tempScene.add(hips);
+    tempScene.updateMatrixWorld(true);
+
     const bonePositions = bones.map(bone => {
-        const worldPos = new THREE.Vector3();
-        bone.getWorldPosition(worldPos);
-        return worldPos;
+        return bone.getWorldPosition(new THREE.Vector3());
     });
+    
+    // Remove hips from temp scene after use
+    tempScene.remove(hips);
 
     for (let i = 0; i < position.count; i++) {
         const vertex = new THREE.Vector3().fromBufferAttribute(position, i);
-        // Transform vertex to world space (account for any model transforms)
-        vertex.applyMatrix4(targetMesh.matrixWorld);
+        // Vertex is in local space, which is what we need since bone positions are also in the same space.
 
         const boneDistances = bonePositions.map((bonePos, index) => ({
             index,
@@ -154,47 +125,37 @@ export async function rigCharacter(model, markers, onProgress) {
         const weights = closestBones.map(b => {
             const weight = 1.0 / (b.distance * b.distance + 1e-6); // Inverse square distance
             totalWeight += weight;
-            return weight;
+            return {weight, index: b.index};
         });
 
-        skinIndex.setXYZW(i, closestBones[0].index, closestBones[1].index, closestBones[2].index, closestBones[3].index);
-        skinWeight.setXYZW(i, weights[0] / totalWeight, weights[1] / totalWeight, weights[2] / totalWeight, weights[3] / totalWeight);
+        // Normalize weights
+        const normalizedWeights = weights.map(w => w.weight / totalWeight);
+
+        skinIndex.setXYZW(i, weights[0]?.index || 0, weights[1]?.index || 0, weights[2]?.index || 0, weights[3]?.index || 0);
+        skinWeight.setXYZW(i, normalizedWeights[0] || 0, normalizedWeights[1] || 0, normalizedWeights[2] || 0, normalizedWeights[3] || 0);
     }
 
     geometry.setAttribute('skinIndex', skinIndex);
     geometry.setAttribute('skinWeight', skinWeight);
 
-    // 5. Create SkinnedMesh
+    // 4. Create SkinnedMesh
     const material = targetMesh.material;
-    material.skinning = true;
+    if(material) material.skinning = true;
 
     const skinnedMesh = new THREE.SkinnedMesh(geometry, material);
     
-    // Remove skeleton from temp object
-    tempSkeletonRoot.remove(hips);
-    
-    // The root bone should be added to the skinned mesh
+    // Add the root bone to the skinned mesh
     skinnedMesh.add(hips); 
     skinnedMesh.bind(skeleton);
     
-    // Position the skinned mesh at the skeleton's origin
-    skinnedMesh.position.copy(skeletonOrigin);
+    // The skinned mesh is created at the origin, which matches the model's centered position.
 
     onProgress(0.9, "Finalizing rig...");
     await new Promise(res => setTimeout(res, 200));
     
-    // Replace the original mesh with the skinned mesh in the scene graph
-    const riggedModel = model.clone();
-    let meshToReplace;
-    riggedModel.traverse(child => {
-        if (child.isMesh) meshToReplace = child;
-    });
-
-    if (meshToReplace) {
-       const parent = meshToReplace.parent;
-       parent.remove(meshToReplace);
-       parent.add(skinnedMesh);
-    }
+    // Create a new model group to hold the final result
+    const riggedModel = new THREE.Group();
+    riggedModel.add(skinnedMesh);
     
     // Add a simple test animation
     const animations = createTestAnimations(skeleton);
