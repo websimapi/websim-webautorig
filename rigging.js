@@ -28,23 +28,25 @@ const BONE_HIERARCHY = {
 
 const BONE_NAMES = Object.keys(BONE_HIERARCHY);
 
-export async function rigCharacter(model, markers, onProgress) {
+export async function rigCharacter(model, markers, modelInverseMatrix, onProgress) {
     onProgress(0.1, "Creating skeleton...");
     await new Promise(res => setTimeout(res, 200));
 
     // 1. Create bones from markers
     const bones = [];
     const boneMap = new Map();
-    const markerPositions = new Map(); // Store world positions from markers
+    const markerPositions = new Map(); // Store local positions of markers
     
-    // The model is centered at the origin, so its world matrix is identity.
-    // The marker positions are effectively in the model's local space.
+    // Transform marker world positions to the model's local space.
     for (const id of BONE_NAMES) {
+        const worldPos = markers.get(id);
+        const localPos = worldPos.clone().applyMatrix4(modelInverseMatrix);
+        markerPositions.set(id, localPos);
+        
         const bone = new THREE.Bone();
         bone.name = id;
         boneMap.set(id, bone);
         bones.push(bone);
-        markerPositions.set(id, markers.get(id).clone());
     }
 
     // 2. Build hierarchy and set local positions
@@ -55,9 +57,9 @@ export async function rigCharacter(model, markers, onProgress) {
             parentBone.add(bone);
             
             // Position is relative to parent bone
-            const childWorldPos = markerPositions.get(id);
-            const parentWorldPos = markerPositions.get(parentId);
-            bone.position.copy(childWorldPos).sub(parentWorldPos);
+            const childLocalPos = markerPositions.get(id);
+            const parentLocalPos = markerPositions.get(parentId);
+            bone.position.copy(childLocalPos).sub(parentLocalPos);
 
         } else { // This is the root bone (hips)
             bone.position.copy(markerPositions.get(id));
@@ -94,23 +96,18 @@ export async function rigCharacter(model, markers, onProgress) {
     const skinIndex = new THREE.BufferAttribute(new Uint16Array(position.count * 4), 4);
     const skinWeight = new THREE.BufferAttribute(new Float32Array(position.count * 4), 4);
 
-    // Get world positions of all bones for weight calculation.
-    // We need to add the root bone to a temporary object to calculate world matrices.
-    const hips = boneMap.get('hips');
-    const tempScene = new THREE.Scene();
-    tempScene.add(hips);
-    tempScene.updateMatrixWorld(true);
-
+    // Get the local positions of all bones for weight calculation.
+    // The geometry vertices are in local space, so the bones must be too.
     const bonePositions = bones.map(bone => {
-        return bone.getWorldPosition(new THREE.Vector3());
+        // Since we built the hierarchy from local positions, we can just get them from the map.
+        // We find the bone's ID from its name to look up its position.
+        const boneId = bone.name;
+        return markerPositions.get(boneId);
     });
-    
-    // Remove hips from temp scene after use
-    tempScene.remove(hips);
 
     for (let i = 0; i < position.count; i++) {
         const vertex = new THREE.Vector3().fromBufferAttribute(position, i);
-        // Vertex is in local space, which is what we need since bone positions are also in the same space.
+        // Vertex is in local space, which is what we need.
 
         const boneDistances = bonePositions.map((bonePos, index) => ({
             index,
@@ -145,7 +142,7 @@ export async function rigCharacter(model, markers, onProgress) {
     const skinnedMesh = new THREE.SkinnedMesh(geometry, material);
     
     // Add the root bone to the skinned mesh
-    skinnedMesh.add(hips); 
+    skinnedMesh.add(boneMap.get('hips')); 
     skinnedMesh.bind(skeleton);
     
     // The skinned mesh is created at the origin, which matches the model's centered position.

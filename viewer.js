@@ -225,6 +225,13 @@ export class Viewer {
             model: this.model
         };
     }
+
+    getModelInverseMatrix() {
+        if (!this.model) return new THREE.Matrix4();
+        // Ensure the world matrix is up-to-date before inverting.
+        this.model.updateWorldMatrix(true, false);
+        return new THREE.Matrix4().copy(this.model.matrixWorld).invert();
+    }
     
     resetControls() {
         this.controls.reset();
