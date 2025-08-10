@@ -203,3 +203,82 @@ button.primary-btn:hover:not(:disabled) {
     width: 100%;
 }
 
+
+/* Mobile responsiveness */
+@media (max-width: 768px) {
+    body {
+        /* Allow scrolling on mobile */
+        height: auto;
+        min-height: 100vh;
+        overflow-y: auto;
+    }
+
+    header {
+        padding: 0.75rem;
+    }
+
+    main {
+        overflow: hidden;
+    }
+    
+    .view, #editor-view {
+        /* Ensure views don't try to be 100% of a fixed vh, which causes issues on mobile */
+        height: auto;
+        min-height: calc(100vh - 70px); /* Approx header height */
+    }
+
+    .panel {
+        padding: 1.5rem 1rem;
+        max-width: 100%;
+        border-radius: 0;
+        border-left: none;
+        border-right: none;
+        box-shadow: none;
+    }
+
+    #upload-view .panel,
+    #preview-view .panel {
+        border: none;
+        background-color: transparent;
+        box-shadow: none;
+    }
+    
+    /* Editor View on Mobile */
+    #editor-view {
+        flex-direction: column;
+    }
+
+    #viewer-container {
+        /* Maintain a squarish aspect ratio based on screen width */
+        height: 80vw;
+        min-height: 300px;
+        flex-grow: 0; /* Prevent it from taking over flex space */
+    }
+
+    #editor-panel {
+        width: 100%;
+        max-width: 100%;
+        border-left: none;
+        border-top: 1px solid var(--border-color);
+        border-radius: 0;
+        flex-grow: 1; /* Allow panel to fill remaining space */
+        min-height: 350px;
+    }
+
+    #marker-list {
+        max-height: 30vh; /* Prevent list from being too tall */
+        flex-grow: 1;
+    }
+    
+    .button-group {
+        flex-direction: column; /* Stack buttons vertically */
+        gap: 0.75rem;
+    }
+
+    #preview-view .panel {
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        text-align: center;
+    }
+}
