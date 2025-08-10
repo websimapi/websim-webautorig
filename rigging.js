@@ -35,16 +35,19 @@ export async function rigCharacter(model, markers, onProgress) {
     // 1. Create bones from markers
     const bones = [];
     const boneMap = new Map();
+    const markerPositions = new Map();
+    
     for (const id of BONE_NAMES) {
         const bone = new THREE.Bone();
         bone.name = id;
-        // The marker positions are in world space, we need to transform them to local
-        bone.position.copy(markers.get(id));
+        const worldPos = markers.get(id).clone();
+        markerPositions.set(id, worldPos);
+        bone.position.copy(worldPos); // Temporarily store world position
         bones.push(bone);
         boneMap.set(id, bone);
     }
 
-    // 2. Build hierarchy
+    // 2. Build hierarchy first
     for (const [id, bone] of boneMap.entries()) {
         const parentId = Object.keys(BONE_HIERARCHY).find(p => BONE_HIERARCHY[p].children.includes(id));
         if (parentId) {
@@ -53,22 +56,52 @@ export async function rigCharacter(model, markers, onProgress) {
         }
     }
     
-    // The root bone (hips) should not be moved. Its position is the skeleton's origin.
+    // 3. Convert positions to local space relative to parents
     const hips = boneMap.get('hips');
-    const skeletonOrigin = hips.position.clone();
+    const skeletonOrigin = markerPositions.get('hips');
     
-    // Convert all bone positions to be relative to the skeleton's origin (hips).
-    // Then, set their local position relative to their parent.
-    for (const bone of bones) {
-        if (bone !== hips) {
-            bone.position.sub(skeletonOrigin);
+    // Set hips at origin
+    hips.position.set(0, 0, 0);
+    
+    // Convert all other bones to local positions relative to their parents
+    const processedBones = new Set();
+    
+    function setBoneLocalPosition(bone) {
+        if (processedBones.has(bone.name)) return;
+        processedBones.add(bone.name);
+        
+        if (bone.name === 'hips') {
+            bone.position.set(0, 0, 0);
+        } else {
+            const worldPos = markerPositions.get(bone.name);
+            const parentBone = bone.parent;
+            
+            if (parentBone && parentBone.isBone) {
+                // Ensure parent is processed first
+                setBoneLocalPosition(parentBone);
+                
+                // Update parent's world matrix
+                parentBone.updateWorldMatrix(true, false);
+                
+                // Convert world position to local position relative to parent
+                const localPos = worldPos.clone();
+                parentBone.worldToLocal(localPos);
+                bone.position.copy(localPos);
+            } else {
+                // No parent, position relative to skeleton origin
+                bone.position.copy(worldPos).sub(skeletonOrigin);
+            }
         }
     }
-    hips.position.set(0, 0, 0);
+    
+    // Process all bones to set correct local positions
+    for (const bone of bones) {
+        setBoneLocalPosition(bone);
+    }
 
     const skeleton = new THREE.Skeleton(bones);
 
-    // 3. Find the mesh and prepare it for skinning
+    // 4. Find the mesh and prepare it for skinning
     let targetMesh;
     model.traverse(child => {
         if (child.isMesh && !targetMesh) {
@@ -88,10 +121,25 @@ export async function rigCharacter(model, markers, onProgress) {
     const skinIndex = new THREE.BufferAttribute(new Uint16Array(position.count * 4), 4);
     const skinWeight = new THREE.BufferAttribute(new Float32Array(position.count * 4), 4);
 
-    const bonePositions = bones.map(b => b.getWorldPosition(new THREE.Vector3()));
+    // Create a temporary object to hold the skeleton for world matrix calculations
+    const tempSkeletonRoot = new THREE.Object3D();
+    tempSkeletonRoot.position.copy(skeletonOrigin);
+    tempSkeletonRoot.add(hips);
+    
+    // Update all world matrices
+    tempSkeletonRoot.updateMatrixWorld(true);
+    
+    // Get world positions of all bones
+    const bonePositions = bones.map(bone => {
+        const worldPos = new THREE.Vector3();
+        bone.getWorldPosition(worldPos);
+        return worldPos;
+    });
 
     for (let i = 0; i < position.count; i++) {
         const vertex = new THREE.Vector3().fromBufferAttribute(position, i);
+        // Transform vertex to world space (account for any model transforms)
+        vertex.applyMatrix4(targetMesh.matrixWorld);
 
         const boneDistances = bonePositions.map((bonePos, index) => ({
             index,
@@ -116,18 +164,20 @@ export async function rigCharacter(model, markers, onProgress) {
     geometry.setAttribute('skinIndex', skinIndex);
     geometry.setAttribute('skinWeight', skinWeight);
 
-    // 4. Create SkinnedMesh
+    // 5. Create SkinnedMesh
     const material = targetMesh.material;
     material.skinning = true;
 
     const skinnedMesh = new THREE.SkinnedMesh(geometry, material);
     
-    // The root bone's world position should be at the skeleton's origin.
-    const rootBone = skeleton.bones[0];
-    skinnedMesh.add(rootBone); 
+    // Remove skeleton from temp object
+    tempSkeletonRoot.remove(hips);
+    
+    // The root bone should be added to the skinned mesh
+    skinnedMesh.add(hips); 
     skinnedMesh.bind(skeleton);
     
-    // Position the skinned mesh itself, which also moves the skeleton's root.
+    // Position the skinned mesh at the skeleton's origin
     skinnedMesh.position.copy(skeletonOrigin);
 
     onProgress(0.9, "Finalizing rig...");
