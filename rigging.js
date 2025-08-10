@@ -53,12 +53,18 @@ export async function rigCharacter(model, markers, onProgress) {
         }
     }
     
-    // Convert children positions to local space relative to parent
+    // The root bone (hips) should not be moved. Its position is the skeleton's origin.
+    const hips = boneMap.get('hips');
+    const skeletonOrigin = hips.position.clone();
+    
+    // Convert all bone positions to be relative to the skeleton's origin (hips).
+    // Then, set their local position relative to their parent.
     for (const bone of bones) {
-        if(bone.parent && bone.parent.isBone) {
-            bone.position.sub(bone.parent.getWorldPosition(new THREE.Vector3()));
+        if (bone !== hips) {
+            bone.position.sub(skeletonOrigin);
         }
     }
+    hips.position.set(0, 0, 0);
 
     const skeleton = new THREE.Skeleton(bones);
 
@@ -115,8 +121,14 @@ export async function rigCharacter(model, markers, onProgress) {
     material.skinning = true;
 
     const skinnedMesh = new THREE.SkinnedMesh(geometry, material);
-    skinnedMesh.add(skeleton.bones[0]); // Add root bone
+    
+    // The root bone's world position should be at the skeleton's origin.
+    const rootBone = skeleton.bones[0];
+    skinnedMesh.add(rootBone); 
     skinnedMesh.bind(skeleton);
+    
+    // Position the skinned mesh itself, which also moves the skeleton's root.
+    skinnedMesh.position.copy(skeletonOrigin);
 
     onProgress(0.9, "Finalizing rig...");
     await new Promise(res => setTimeout(res, 200));

@@ -230,6 +230,7 @@ export class Viewer {
         this.controls.reset();
         this.camera.position.set(0, 1, 3);
         this.controls.target.set(0, 0.9, 0);
+        this.controls.update();
     }
     
     dispose() {
