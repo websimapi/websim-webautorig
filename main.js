@@ -1,8 +1,18 @@
+import * as THREE from 'three';
 import { Viewer } from './viewer.js';
 import { rigCharacter } from './rigging.js';
+import { GLTFExporter } from 'three/addons/exporters/GLTFExporter.js';
 
 const MARKER_DEFINITIONS = [
+    { id: 'hips', name: 'Hips (Center)', color: 0x8800ff },
+    { id: 'spine', name: 'Spine (Mid)', color: 0x0000ff },
     { id: 'neck', name: 'Neck Base', color: 0xff0000 },
+    { id: 'left_hip', name: 'Left Hip', color: 0xff00ff },
+    { id: 'right_hip', name: 'Right Hip', color: 0xff00ff },
+    { id: 'left_knee', name: 'Left Knee', color: 0xff0088 },
+    { id: 'right_knee', name: 'Right Knee', color: 0xff0088 },
+    { id: 'left_ankle', name: 'Left Ankle', color: 0xff8888 },
+    { id: 'right_ankle', name: 'Right Ankle', color: 0xff8888 },
     { id: 'left_clavicle', name: 'Left Clavicle', color: 0xff8800 },
     { id: 'right_clavicle', name: 'Right Clavicle', color: 0xff8800 },
     { id: 'left_shoulder', name: 'Left Shoulder', color: 0xffff00 },
@@ -11,21 +21,16 @@ const MARKER_DEFINITIONS = [
     { id: 'right_elbow', name: 'Right Elbow', color: 0x00ff00 },
     { id: 'left_wrist', name: 'Left Wrist', color: 0x00ffff },
     { id: 'right_wrist', name: 'Right Wrist', color: 0x00ffff },
-    { id: 'spine', name: 'Spine (Mid)', color: 0x0000ff },
-    { id: 'hips', name: 'Hips (Center)', color: 0x8800ff },
-    { id: 'left_hip', name: 'Left Hip', color: 0xff00ff },
-    { id: 'right_hip', name: 'Right Hip', color: 0xff00ff },
-    { id: 'left_knee', name: 'Left Knee', color: 0xff0088 },
-    { id: 'right_knee', name: 'Right Knee', color: 0xff0088 },
-    { id: 'left_ankle', name: 'Left Ankle', color: 0xff8888 },
-    { id: 'right_ankle', name: 'Right Ankle', color: 0xff8888 },
 ];
 
 class App {
     constructor() {
-        this.viewer = null;
+        this.editorViewer = null;
+        this.previewViewer = null;
         this.currentMarkers = new Map();
         this.activeMarkerId = null;
+        this.riggedModel = null;
+        this.animations = {};
 
         this.initViews();
         this.initEventListeners();
@@ -43,8 +48,11 @@ class App {
     initEventListeners() {
         document.getElementById('model-input').addEventListener('change', this.handleModelUpload.bind(this));
         document.getElementById('rig-btn').addEventListener('click', this.handleRigging.bind(this));
-        document.getElementById('reset-view-btn').addEventListener('click', () => this.viewer?.resetControls());
+        document.getElementById('reset-view-btn').addEventListener('click', () => this.editorViewer?.resetControls());
         document.getElementById('start-over-btn').addEventListener('click', this.resetApp.bind(this));
+        document.getElementById('export-btn').addEventListener('click', this.exportRiggedModel.bind(this));
+        document.getElementById('skeleton-toggle').addEventListener('change', (e) => this.previewViewer?.toggleSkeleton(e.target.checked));
+        document.getElementById('animation-select').addEventListener('change', (e) => this.previewViewer?.playAnimation(e.target.value));
 
         const uploadBox = document.querySelector('.upload-box');
         uploadBox.addEventListener('dragover', (e) => {
@@ -85,7 +93,7 @@ class App {
         }
         this.activeMarkerId = markerId;
         document.getElementById(`marker-item-${this.activeMarkerId}`).classList.add('active');
-        this.viewer?.setActiveMarker(markerId);
+        this.editorViewer?.setActiveMarker(markerId);
     }
 
     async handleModelUpload(event) {
@@ -96,14 +104,14 @@ class App {
 
         this.switchView('editor');
 
-        if (!this.viewer) {
+        if (!this.editorViewer) {
             const canvas = document.getElementById('viewer-canvas');
-            this.viewer = new Viewer(canvas, MARKER_DEFINITIONS);
-            this.viewer.onMarkerPlaced = this.onMarkerPlaced.bind(this);
+            this.editorViewer = new Viewer(canvas, MARKER_DEFINITIONS);
+            this.editorViewer.onMarkerPlaced = this.onMarkerPlaced.bind(this);
         }
         
-        await this.viewer.loadModel(objectURL);
-        this.viewer.resetControls();
+        await this.editorViewer.loadModel(objectURL);
+        this.editorViewer.resetControls();
     }
 
     onMarkerPlaced(markerId, position) {
@@ -138,15 +146,19 @@ class App {
         };
 
         try {
-            const model = this.viewer.getSceneData();
-            const riggedData = await rigCharacter(model, this.currentMarkers, onProgress);
+            const model = this.editorViewer.getSceneData().model;
+            const {riggedModel, animations} = await rigCharacter(model, this.currentMarkers, onProgress);
             
-            // For now, just switch to preview. Later, we'd load the rigged model.
-            console.log('Rigging complete', riggedData);
+            this.riggedModel = riggedModel;
+            this.animations = animations;
+            console.log('Rigging complete', this.riggedModel);
+            
             onProgress(1, 'Done!');
             
             setTimeout(() => {
+                this.setupPreview();
                 this.switchView('preview');
+                document.getElementById('export-btn').disabled = false;
             }, 500);
 
         } catch (error) {
@@ -156,18 +168,81 @@ class App {
             progressContainer.style.display = 'none';
         }
     }
+    
+    setupPreview() {
+        if (!this.previewViewer) {
+            const canvas = document.getElementById('preview-viewer-canvas');
+            this.previewViewer = new Viewer(canvas);
+        }
+        this.previewViewer.setModel(this.riggedModel, this.animations);
+        this.previewViewer.resetControls();
+
+        // Populate animation dropdown
+        const animSelect = document.getElementById('animation-select');
+        const animControls = document.getElementById('animation-controls');
+        animSelect.innerHTML = '<option value="none">None (T-Pose)</option>';
+
+        const animNames = Object.keys(this.animations);
+        if (animNames.length > 0) {
+            animControls.style.display = 'block';
+            animNames.forEach(name => {
+                const option = document.createElement('option');
+                option.value = name;
+                option.textContent = name.charAt(0).toUpperCase() + name.slice(1);
+                animSelect.appendChild(option);
+            });
+        } else {
+            animControls.style.display = 'none';
+        }
+    }
+
+    async exportRiggedModel() {
+        if (!this.riggedModel) return;
+
+        const exporter = new GLTFExporter();
+        const options = {
+            binary: true, // Export as GLB
+            animations: Object.values(this.animations)
+        };
+
+        exporter.parse(
+            this.riggedModel,
+            (gltf) => {
+                const blob = new Blob([gltf], { type: 'model/gltf-binary' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'rigged-character.glb';
+                a.click();
+                URL.revokeObjectURL(url);
+            },
+            (error) => {
+                console.error('An error happened during GLTF export:', error);
+                alert('Failed to export model.');
+            },
+            options
+        );
+    }
 
     resetApp() {
-        this.viewer?.dispose();
-        this.viewer = null;
+        this.editorViewer?.dispose();
+        this.editorViewer = null;
+        this.previewViewer?.dispose();
+        this.previewViewer = null;
+
         this.currentMarkers.clear();
+        this.riggedModel = null;
+        this.animations = {};
+
         document.getElementById('model-input').value = '';
         
         document.querySelectorAll('#marker-list li').forEach(li => li.classList.remove('placed', 'active'));
         this.setupMarkerList();
         
         document.getElementById('rig-btn').disabled = true;
+        document.getElementById('export-btn').disabled = true;
         document.querySelector('.progress-container').style.display = 'none';
+        document.getElementById('skeleton-toggle').checked = false;
 
         this.switchView('upload');
     }
@@ -179,4 +254,3 @@ class App {
 }
 
 window.addEventListener('load', () => new App());
-

@@ -3,7 +3,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
 export class Viewer {
-    constructor(canvas, markerDefs) {
+    constructor(canvas, markerDefs = []) {
         this.canvas = canvas;
         this.markerDefs = markerDefs;
         this.onMarkerPlaced = () => {};
@@ -18,6 +18,11 @@ export class Viewer {
         
         this.activeMarkerId = null;
         this.model = null;
+        this.skeletonHelper = null;
+        this.mixer = null;
+        this.clock = new THREE.Clock();
+        this.animations = {};
+        this.activeAction = null;
 
         this.animate = this.animate.bind(this);
         this.animate();
@@ -58,6 +63,10 @@ export class Viewer {
     animate() {
         requestAnimationFrame(this.animate);
         this.controls.update();
+
+        if (this.mixer) {
+            this.mixer.update(this.clock.getDelta());
+        }
         
         const { clientWidth, clientHeight } = this.renderer.domElement;
         if (this.canvas.width !== clientWidth || this.canvas.height !== clientHeight) {
@@ -71,27 +80,105 @@ export class Viewer {
 
     async loadModel(url) {
         if (this.model) {
-            this.scene.remove(this.model);
-            this.markers.clear();
+            this.clearScene();
         }
         const loader = new GLTFLoader();
         const gltf = await loader.loadAsync(url);
         
-        this.model = gltf.scene;
+        const model = gltf.scene;
 
         // Pre-process: center and normalize
-        const box = new THREE.Box3().setFromObject(this.model);
+        const box = new THREE.Box3().setFromObject(model);
         const size = box.getSize(new THREE.Vector3());
         const center = box.getCenter(new THREE.Vector3());
 
-        this.model.position.sub(center);
+        model.position.sub(center);
         
         const maxDim = Math.max(size.x, size.y, size.z);
         const scale = 1.8 / maxDim; // Normalize to fit a 1.8 unit height
-        this.model.scale.setScalar(scale);
+        model.scale.setScalar(scale);
 
-        this.scene.add(this.model);
+        this.setModel(model);
         URL.revokeObjectURL(url);
+    }
+
+    setModel(model, animations = {}) {
+        this.clearScene();
+        this.model = model;
+        this.scene.add(this.model);
+
+        this.animations = {};
+        Object.entries(animations).forEach(([name, clip]) => {
+            this.animations[name] = clip;
+        });
+
+        if (Object.keys(this.animations).length > 0) {
+            this.mixer = new THREE.AnimationMixer(this.model);
+        }
+
+        this.setupSkeletonHelper();
+    }
+
+    clearScene() {
+        if (this.model) {
+            this.scene.remove(this.model);
+            this.model = null;
+        }
+        if (this.skeletonHelper) {
+            this.scene.remove(this.skeletonHelper);
+            this.skeletonHelper = null;
+        }
+        this.markers.clear();
+        if (this.mixer) {
+            this.mixer.stopAllAction();
+            this.mixer = null;
+        }
+        this.animations = {};
+        this.activeAction = null;
+    }
+
+    setupSkeletonHelper() {
+        let skinnedMesh;
+        this.model.traverse(child => {
+            if (child.isSkinnedMesh) {
+                skinnedMesh = child;
+            }
+        });
+
+        if (skinnedMesh && skinnedMesh.skeleton) {
+            this.skeletonHelper = new THREE.SkeletonHelper(skinnedMesh.skeleton.bones[0]); // Pass root bone
+            this.skeletonHelper.visible = false;
+            this.scene.add(this.skeletonHelper);
+        }
+    }
+
+    toggleSkeleton(visible) {
+        if (this.skeletonHelper) {
+            this.skeletonHelper.visible = visible;
+        }
+    }
+
+    playAnimation(name) {
+        if (this.activeAction) {
+            this.activeAction.fadeOut(0.5);
+        }
+
+        if (name === 'none' || !this.animations[name] || !this.mixer) {
+            this.activeAction = null;
+            // Reset to bind pose
+            this.mixer?.stopAllAction();
+            this.model.traverse(child => {
+                if(child.isSkinnedMesh) {
+                    child.skeleton.pose();
+                }
+            });
+            return;
+        }
+
+        const clip = this.animations[name];
+        const action = this.mixer.clipAction(clip);
+        action.reset().fadeIn(0.5).play();
+        this.activeAction = action;
     }
 
     onPointerDown(event) {
@@ -129,7 +216,6 @@ export class Viewer {
         this.onMarkerPlaced(markerId, position.clone());
     }
 
-
     setActiveMarker(markerId) {
         this.activeMarkerId = markerId;
     }
@@ -147,6 +233,7 @@ export class Viewer {
     }
     
     dispose() {
+        this.clearScene();
         this.renderer.dispose();
         this.scene.traverse(obj => {
             if (obj.geometry) obj.geometry.dispose();
@@ -160,4 +247,3 @@ export class Viewer {
         });
     }
 }
-

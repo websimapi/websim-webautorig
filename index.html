@@ -65,10 +65,24 @@
         
         <!-- View 3: Preview Rig -->
         <div id="preview-view" class="view">
-            <div class="panel">
+            <div id="preview-viewer-container">
+                <canvas id="preview-viewer-canvas"></canvas>
+            </div>
+            <div id="preview-panel" class="panel">
                 <h2>3. Preview & Export</h2>
-                <p>Rig generated successfully! Preview animations and export your character.</p>
-                <p>(Preview and export functionality coming soon)</p>
+                <p>Rig generated successfully! Preview the skeleton and test animations.</p>
+                <div class="options-group">
+                    <label>
+                        <input type="checkbox" id="skeleton-toggle"> Show Skeleton
+                    </label>
+                </div>
+                <div id="animation-controls" style="display: none;">
+                    <h4>Animations</h4>
+                    <select id="animation-select">
+                        <option value="none">None (T-Pose)</option>
+                        <!-- Animation options will be added by JS -->
+                    </select>
+                </div>
                 <div class="button-group">
                     <button id="start-over-btn">Start Over</button>
                     <button id="export-btn" class="primary-btn" disabled>Export GLB</button>
@@ -82,4 +96,3 @@
 <script defer src="https://static.cloudflareinsights.com/beacon.min.js/v8c78df7c7c0f484497ecbca7046644da1771523124516" integrity="sha512-8DS7rgIrAmghBFwoOTujcf6D9rXvH8xm8JQ1Ja01h9QX8EzXldiszufYa4IFfKdLUKTTrnSFXLDkUEOTrZQ8Qg==" data-cf-beacon='{"version":"2024.11.0","token":"4c6229722a6346bc8eb5cb0e5eae5d41","server_timing":{"name":{"cfCacheStatus":true,"cfEdge":true,"cfExtPri":true,"cfL4":true,"cfOrigin":true,"cfSpeedBrain":true},"location_startswith":null}}' crossorigin="anonymous"></script>
 </body>
 </html>
-
