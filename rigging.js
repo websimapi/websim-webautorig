@@ -416,11 +416,10 @@ function createTestAnimations(skeleton, hipPos, markerPositions) {
         // Left hip joint - improved stepping motion with proper phases
         if (hipL) {
             const legStepAngle = Math.PI / 9; // ~20 degrees - more pronounced
-            const legLiftAngle = Math.PI / 15; // Additional lift component
             walkTracks.push(new THREE.QuaternionKeyframeTrack(`${hipL.name}.quaternion`, walkTimes, [
                 ...new THREE.Quaternion().setFromEuler(new THREE.Euler(-legStepAngle, 0, 0)).toArray(), // Left leg back (contact)
-                ...new THREE.Quaternion().setFromEuler(new THREE.Euler(-legStepAngle*0.5, 0, legLiftAngle)).toArray(), // Starting to lift
-                ...new THREE.Quaternion().setFromEuler(new THREE.Euler(legStepAngle*0.5, 0, legLiftAngle)).toArray(), // Mid-swing (lifting)
+                ...new THREE.Quaternion().setFromEuler(new THREE.Euler(-legStepAngle*0.5, 0, 0)).toArray(), // Starting to lift
+                ...new THREE.Quaternion().setFromEuler(new THREE.Euler(legStepAngle*0.5, 0, 0)).toArray(), // Mid-swing (lifting)
                 ...new THREE.Quaternion().setFromEuler(new THREE.Euler(legStepAngle, 0, 0)).toArray(),   // Forward swing
                 ...new THREE.Quaternion().setFromEuler(new THREE.Euler(legStepAngle*0.5, 0, 0)).toArray(), // Preparing to contact
                 ...new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, 0)).toArray(),              // Neutral/supporting
@@ -433,15 +432,14 @@ function createTestAnimations(skeleton, hipPos, markerPositions) {
         // Right hip joint - opposite phase with same improvement
         if (hipR) {
             const legStepAngle = Math.PI / 9; // ~20 degrees
-            const legLiftAngle = Math.PI / 15;
             walkTracks.push(new THREE.QuaternionKeyframeTrack(`${hipR.name}.quaternion`, walkTimes, [
                 ...new THREE.Quaternion().setFromEuler(new THREE.Euler(legStepAngle*0.5, 0, 0)).toArray(), // Preparing to contact
                 ...new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, 0)).toArray(),              // Neutral/supporting
                 ...new THREE.Quaternion().setFromEuler(new THREE.Euler(-legStepAngle*0.5, 0, 0)).toArray(), // Moving back
                 ...new THREE.Quaternion().setFromEuler(new THREE.Euler(-legStepAngle*0.8, 0, 0)).toArray(), // Almost full back
                 ...new THREE.Quaternion().setFromEuler(new THREE.Euler(-legStepAngle, 0, 0)).toArray(), // Right leg back (contact)
-                ...new THREE.Quaternion().setFromEuler(new THREE.Euler(-legStepAngle*0.5, 0, -legLiftAngle)).toArray(), // Starting to lift
-                ...new THREE.Quaternion().setFromEuler(new THREE.Euler(legStepAngle*0.5, 0, -legLiftAngle)).toArray(), // Mid-swing (lifting)
+                ...new THREE.Quaternion().setFromEuler(new THREE.Euler(-legStepAngle*0.5, 0, 0)).toArray(), // Starting to lift
+                ...new THREE.Quaternion().setFromEuler(new THREE.Euler(legStepAngle*0.5, 0, 0)).toArray(), // Mid-swing (lifting)
                 ...new THREE.Quaternion().setFromEuler(new THREE.Euler(legStepAngle, 0, 0)).toArray(),   // Forward swing
                 ...new THREE.Quaternion().setFromEuler(new THREE.Euler(legStepAngle*0.5, 0, 0)).toArray(), // Preparing to contact
             ], interpolation));
