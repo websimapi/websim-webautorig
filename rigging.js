@@ -268,43 +268,47 @@ function createTestAnimations(skeleton, hipPos, markerPositions) {
 
     // New Idle Animation
     if (hips && spine && shoulderL && shoulderR && kneeL && kneeR) {
-        const idleTimes = [0, 1, 2, 3, 4];
+        const idleTimes = [0, 0.5, 1.5, 2.5, 3.5, 4.5]; // Added transition time
         const interpolation = THREE.InterpolateSmooth;
         const tracks = [];
 
-        // --- Arm position: lower from T-pose to a resting pose ---
-        const armRestEulerL = new THREE.Euler(0, 0, -Math.PI / 2.5); // Lower left arm
-        const armRestEulerR = new THREE.Euler(0, 0, Math.PI / 2.5); // Lower right arm
-
+        // --- Arm position: lower from T-pose to a resting pose, then sway ---
+        const armRestEulerL = new THREE.Euler(0, 0, -Math.PI / 2.2); // Lower left arm, ~82 deg
+        const armRestEulerR = new THREE.Euler(0, 0, Math.PI / 2.2); // Lower right arm, ~82 deg
+        
         // Add a very subtle arm swing
         const armSwayAngle = Math.PI / 36; // 5 degrees
         
-        const qL_Base = new THREE.Quaternion().setFromEuler(armRestEulerL);
+        const qT_Pose = new THREE.Quaternion(); // Identity quaternion for T-Pose
+        
+        const qL_Rest = new THREE.Quaternion().setFromEuler(armRestEulerL);
         const qL_Fwd = new THREE.Quaternion().setFromEuler(new THREE.Euler(armSwayAngle, 0, armRestEulerL.z));
         const qL_Back = new THREE.Quaternion().setFromEuler(new THREE.Euler(-armSwayAngle, 0, armRestEulerL.z));
         
-        const qR_Base = new THREE.Quaternion().setFromEuler(armRestEulerR);
+        const qR_Rest = new THREE.Quaternion().setFromEuler(armRestEulerR);
         const qR_Fwd = new THREE.Quaternion().setFromEuler(new THREE.Euler(armSwayAngle, 0, armRestEulerR.z));
         const qR_Back = new THREE.Quaternion().setFromEuler(new THREE.Euler(-armSwayAngle, 0, armRestEulerR.z));
-
+        
         tracks.push(new THREE.QuaternionKeyframeTrack(`${shoulderL.name}.quaternion`, idleTimes, [
-            ...qL_Base.toArray(), ...qL_Fwd.toArray(), ...qL_Base.toArray(), ...qL_Back.toArray(), ...qL_Base.toArray()
+            ...qT_Pose.toArray(), ...qL_Rest.toArray(), ...qL_Fwd.toArray(), ...qL_Rest.toArray(), ...qL_Back.toArray(), ...qL_Rest.toArray()
         ], interpolation));
         
         tracks.push(new THREE.QuaternionKeyframeTrack(`${shoulderR.name}.quaternion`, idleTimes, [
-            ...qR_Base.toArray(), ...qR_Back.toArray(), ...qR_Base.toArray(), ...qR_Fwd.toArray(), ...qR_Base.toArray()
+            ...qT_Pose.toArray(), ...qR_Rest.toArray(), ...qR_Back.toArray(), ...qR_Rest.toArray(), ...qR_Fwd.toArray(), ...qR_Rest.toArray()
         ], interpolation));
 
 
         // --- Body Sway: Hips and Spine ---
         const swayAmount = 0.01; // meters
         const initialHipPos = hipPos.clone();
+
         tracks.push(new THREE.VectorKeyframeTrack(`${hips.name}.position`, idleTimes, [
-            initialHipPos.x, initialHipPos.y, initialHipPos.z,
-            initialHipPos.x + swayAmount, initialHipPos.y, initialHipPos.z,
-            initialHipPos.x, initialHipPos.y, initialHipPos.z,
-            initialHipPos.x - swayAmount, initialHipPos.y, initialHipPos.z,
-            initialHipPos.x, initialHipPos.y, initialHipPos.z,
+            initialHipPos.x, initialHipPos.y, initialHipPos.z, // t=0
+            initialHipPos.x, initialHipPos.y, initialHipPos.z, // t=0.5 (no movement during arm transition)
+            initialHipPos.x + swayAmount, initialHipPos.y, initialHipPos.z, // t=1.5
+            initialHipPos.x, initialHipPos.y, initialHipPos.z, // t=2.5
+            initialHipPos.x - swayAmount, initialHipPos.y, initialHipPos.z, // t=3.5
+            initialHipPos.x, initialHipPos.y, initialHipPos.z, // t=4.5
         ], interpolation));
 
         // Counter-rotate spine to keep head level
@@ -312,8 +316,9 @@ function createTestAnimations(skeleton, hipPos, markerPositions) {
         const qSpine_Base = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, 0));
         const qSpine_L = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, spineSwayAngle));
         const qSpine_R = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, -spineSwayAngle));
+
         tracks.push(new THREE.QuaternionKeyframeTrack(`${spine.name}.quaternion`, idleTimes, [
-            ...qSpine_Base.toArray(), ...qSpine_L.toArray(), ...qSpine_Base.toArray(), ...qSpine_R.toArray(), ...qSpine_Base.toArray()
+            ...qSpine_Base.toArray(), ...qSpine_Base.toArray(), ...qSpine_L.toArray(), ...qSpine_Base.toArray(), ...qSpine_R.toArray(), ...qSpine_Base.toArray()
         ], interpolation));
 
 
@@ -324,10 +329,10 @@ function createTestAnimations(skeleton, hipPos, markerPositions) {
         
         // Bend one knee as weight shifts to the other leg
         tracks.push(new THREE.QuaternionKeyframeTrack(`${kneeR.name}.quaternion`, idleTimes, [
-            ...qKnee_Base.toArray(), ...qKnee_Bent.toArray(), ...qKnee_Base.toArray(), ...qKnee_Base.toArray(), ...qKnee_Base.toArray()
+            ...qKnee_Base.toArray(), ...qKnee_Base.toArray(), ...qKnee_Bent.toArray(), ...qKnee_Base.toArray(), ...qKnee_Base.toArray(), ...qKnee_Base.toArray()
         ], interpolation));
         tracks.push(new THREE.QuaternionKeyframeTrack(`${kneeL.name}.quaternion`, idleTimes, [
-            ...qKnee_Base.toArray(), ...qKnee_Base.toArray(), ...qKnee_Base.toArray(), ...qKnee_Bent.toArray(), ...qKnee_Base.toArray()
+            ...qKnee_Base.toArray(), ...qKnee_Base.toArray(), ...qKnee_Base.toArray(), ...qKnee_Base.toArray(), ...qKnee_Bent.toArray(), ...qKnee_Base.toArray()
         ], interpolation));
 
 
