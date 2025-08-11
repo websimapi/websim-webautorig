@@ -404,12 +404,11 @@ function createTestAnimations(skeleton, hipPos, markerPositions) {
                 ...new THREE.Quaternion().setFromEuler(new THREE.Euler(0, -hipRotAngle, 0)).toArray(),
             ], interpolation));
             
-            // Corrected leg and knee rotations to be around the X-axis for forward/backward motion.
+            // Leg and knee rotations around the Y-axis for forward/backward motion.
             const legStepAngle = Math.PI / 8; // 22.5 degrees forward/backward step
             
-            // Forward is negative X rotation, backward is positive X rotation
-            const forwardRot = new THREE.Quaternion().setFromEuler(new THREE.Euler(-legStepAngle, 0, 0));
-            const backwardRot = new THREE.Quaternion().setFromEuler(new THREE.Euler(legStepAngle, 0, 0));
+            const forwardRot = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, legStepAngle, 0));
+            const backwardRot = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, -legStepAngle, 0));
             const neutralRot = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, 0));
 
             // Left Hip (Leg)
@@ -434,14 +433,15 @@ function createTestAnimations(skeleton, hipPos, markerPositions) {
                 ], interpolation));
             }
 
-            // Knee bend (positive X rotation)
+            // Knee bend (positive Y rotation for left knee, negative for right)
             const kneeBendAngle = Math.PI / 4; // 45 degrees
-            const bentKneeRot = new THREE.Quaternion().setFromEuler(new THREE.Euler(kneeBendAngle, 0, 0));
+            const bentKneeRotL = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, kneeBendAngle, 0));
+            const bentKneeRotR = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, -kneeBendAngle, 0));
             
             // Left Knee - bends when leg is moving forward
             walkTracks.push(new THREE.QuaternionKeyframeTrack(`${kneeL.name}.quaternion`, walkTimes, [
                 ...neutralRot.toArray(),   // Straight (back)
-                ...bentKneeRot.toArray(),  // Bending (lifting forward)
+                ...bentKneeRotL.toArray(), // Bending (lifting forward)
                 ...neutralRot.toArray(),   // Straight (forward)
                 ...neutralRot.toArray(),   // Straight (passing back)
                 ...neutralRot.toArray(),   // Straight (back)
@@ -452,7 +452,7 @@ function createTestAnimations(skeleton, hipPos, markerPositions) {
                 ...neutralRot.toArray(),   // Straight (forward)
                 ...neutralRot.toArray(),   // Straight (passing back)
                 ...neutralRot.toArray(),   // Straight (back)
-                ...bentKneeRot.toArray(),  // Bending (lifting forward)
+                ...bentKneeRotR.toArray(), // Bending (lifting forward)
                 ...neutralRot.toArray(),   // Straight (forward)
             ], interpolation));
 
