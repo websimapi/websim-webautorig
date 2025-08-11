@@ -197,7 +197,10 @@ export async function rigCharacter(model, markers, modelInverseMatrix, onProgres
 
     // 4. Create SkinnedMesh
     const material = targetMesh.material;
-    if(material) material.skinning = true;
+    // THREE.Material doesn't have a skinning property, so we must check for it.
+    if(material && 'skinning' in material) {
+        material.skinning = true;
+    }
 
     const skinnedMesh = new THREE.SkinnedMesh(geometry, material);
     
@@ -215,26 +218,43 @@ export async function rigCharacter(model, markers, modelInverseMatrix, onProgres
     riggedModel.add(skinnedMesh);
     
     // Add a simple test animation
-    const animations = createTestAnimations(skeleton);
+    const animations = createTestAnimations(skeleton, boneMap.get('hips').position, markerPositions);
 
     return { riggedModel: riggedModel, animations };
 }
 
-function createTestAnimations(skeleton) {
+function createTestAnimations(skeleton, hipPos, markerPositions) {
     const shoulderR = skeleton.getBoneByName('right_shoulder');
-    const shoulderL = skeleton.getBoneByName('left_shoulder');
+    const elbowR = skeleton.getBoneByName('right_elbow');
 
-    if (!shoulderR || !shoulderL) return {};
+    if (!shoulderR || !elbowR) return {};
 
     // Wave animation for right arm
-    const times = [0, 1, 2];
-    const valuesR = [
+    const times = [0, 0.5, 1, 1.5, 2];
+    
+    // Shoulder rotation (moves arm up and down from T-Pose)
+    const shoulderZAngle = Math.PI / 4; // 45 degrees
+    const shoulderValues = [
         ...new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, 0)).toArray(),
-        ...new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, -Math.PI / 2)).toArray(),
+        ...new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, shoulderZAngle)).toArray(),
+        ...new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, 0)).toArray(),
+        ...new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, shoulderZAngle)).toArray(),
         ...new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, 0)).toArray(),
     ];
-    const shoulderTrackR = new THREE.QuaternionKeyframeTrack(`${shoulderR.name}.quaternion`, times, valuesR);
-    const waveClip = new THREE.AnimationClip('wave', -1, [shoulderTrackR]);
+    const shoulderTrack = new THREE.QuaternionKeyframeTrack(`${shoulderR.name}.quaternion`, times, shoulderValues);
+
+    // Elbow rotation (bends)
+    const elbowYAngle = -Math.PI / 2; // -90 degrees
+    const elbowValues = [
+        ...new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, 0)).toArray(),
+        ...new THREE.Quaternion().setFromEuler(new THREE.Euler(0, elbowYAngle, 0)).toArray(),
+        ...new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, 0)).toArray(),
+        ...new THREE.Quaternion().setFromEuler(new THREE.Euler(0, elbowYAngle, 0)).toArray(),
+        ...new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, 0)).toArray(),
+    ];
+    const elbowTrack = new THREE.QuaternionKeyframeTrack(`${elbowR.name}.quaternion`, times, elbowValues);
+
+    const waveClip = new THREE.AnimationClip('wave', -1, [shoulderTrack, elbowTrack]);
 
     return { wave: waveClip };
 }
