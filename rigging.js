@@ -28,6 +28,17 @@ const BONE_HIERARCHY = {
 
 const BONE_NAMES = Object.keys(BONE_HIERARCHY);
 
+// Helper function to calculate the squared distance from a point to a line segment.
+// It's more efficient to work with squared distances to avoid square roots.
+function distanceToSegmentSq(point, segStart, segEnd) {
+    const l2 = segStart.distanceToSquared(segEnd);
+    if (l2 === 0) return point.distanceToSquared(segStart);
+    let t = ((point.x - segStart.x) * (segEnd.x - segStart.x) + (point.y - segStart.y) * (segEnd.y - segStart.y) + (point.z - segStart.z) * (segEnd.z - segStart.z)) / l2;
+    t = Math.max(0, Math.min(1, t));
+    const closestPointOnSegment = segStart.clone().lerp(segEnd, t);
+    return point.distanceToSquared(closestPointOnSegment);
+}
+
 export async function rigCharacter(model, markers, modelInverseMatrix, onProgress) {
     onProgress(0.1, "Creating skeleton...");
     await new Promise(res => setTimeout(res, 200));
@@ -96,41 +107,90 @@ export async function rigCharacter(model, markers, modelInverseMatrix, onProgres
     const skinIndex = new THREE.BufferAttribute(new Uint16Array(position.count * 4), 4);
     const skinWeight = new THREE.BufferAttribute(new Float32Array(position.count * 4), 4);
 
-    // Get the local positions of all bones for weight calculation.
-    // The geometry vertices are in local space, so the bones must be too.
-    const bonePositions = bones.map(bone => {
-        // Since we built the hierarchy from local positions, we can just get them from the map.
-        // We find the bone's ID from its name to look up its position.
-        const boneId = bone.name;
-        return markerPositions.get(boneId);
-    });
+    // --- New skinning weight logic ---
+    // Create bone segments (start and end points) in local space for more accurate distance calculation.
+    const boneSegments = [];
+    const boneIndexMap = new Map(bones.map((bone, index) => [bone.name, index]));
 
+    for (const bone of bones) {
+        const startPos = markerPositions.get(bone.name);
+        const childrenNames = BONE_HIERARCHY[bone.name]?.children || [];
+        
+        if (childrenNames.length > 0) {
+            // For bones with children, create segments to each child.
+            for (const childName of childrenNames) {
+                const endPos = markerPositions.get(childName);
+                if (endPos) {
+                    boneSegments.push({
+                        boneIndex: boneIndexMap.get(bone.name),
+                        start: startPos,
+                        end: endPos
+                    });
+                }
+            }
+        } else {
+             // For leaf bones (like wrists/ankles), treat them as a point.
+             // We represent this as a zero-length segment.
+            boneSegments.push({
+                boneIndex: boneIndexMap.get(bone.name),
+                start: startPos,
+                end: startPos
+            });
+        }
+    }
+    
     for (let i = 0; i < position.count; i++) {
         const vertex = new THREE.Vector3().fromBufferAttribute(position, i);
-        // Vertex is in local space, which is what we need.
 
-        const boneDistances = bonePositions.map((bonePos, index) => ({
-            index,
-            distance: vertex.distanceTo(bonePos)
+        // Calculate distance from the vertex to each bone segment.
+        const boneDistances = boneSegments.map(segment => ({
+            index: segment.boneIndex,
+            // Use squared distance for efficiency
+            distanceSq: distanceToSegmentSq(vertex, segment.start, segment.end)
         }));
 
-        boneDistances.sort((a, b) => a.distance - b.distance);
+        // Group distances by bone index, keeping the minimum distance for bones with multiple segments (e.g., hips, neck).
+        const minBoneDistances = new Map();
+        for (const dist of boneDistances) {
+            if (!minBoneDistances.has(dist.index) || dist.distanceSq < minBoneDistances.get(dist.index)) {
+                minBoneDistances.set(dist.index, dist.distanceSq);
+            }
+        }
 
-        const closestBones = boneDistances.slice(0, 4);
+        const uniqueBoneDistances = Array.from(minBoneDistances.entries()).map(([index, distanceSq]) => ({
+            index,
+            distance: Math.sqrt(distanceSq) // Now take the square root
+        }));
+
+        uniqueBoneDistances.sort((a, b) => a.distance - b.distance);
+
+        const closestBones = uniqueBoneDistances.slice(0, 4);
         let totalWeight = 0;
         
         const weights = closestBones.map(b => {
-            const weight = 1.0 / (b.distance * b.distance + 1e-6); // Inverse square distance
+            // Using a power of 4 for faster falloff, which can help reduce unwanted influence from distant bones.
+            const weight = 1.0 / (Math.pow(b.distance, 4) + 1e-8);
             totalWeight += weight;
-            return {weight, index: b.index};
+            return { weight, index: b.index };
         });
 
         // Normalize weights
-        const normalizedWeights = weights.map(w => w.weight / totalWeight);
+        const finalWeights = [];
+        for(let j = 0; j < 4; j++) {
+            if(weights[j]) {
+                finalWeights.push({
+                    index: weights[j].index,
+                    weight: weights[j].weight / totalWeight
+                });
+            } else {
+                finalWeights.push({ index: 0, weight: 0 });
+            }
+        }
 
-        skinIndex.setXYZW(i, weights[0]?.index || 0, weights[1]?.index || 0, weights[2]?.index || 0, weights[3]?.index || 0);
-        skinWeight.setXYZW(i, normalizedWeights[0] || 0, normalizedWeights[1] || 0, normalizedWeights[2] || 0, normalizedWeights[3] || 0);
+        skinIndex.setXYZW(i, finalWeights[0].index, finalWeights[1].index, finalWeights[2].index, finalWeights[3].index);
+        skinWeight.setXYZW(i, finalWeights[0].weight, finalWeights[1].weight, finalWeights[2].weight, finalWeights[3].weight);
     }
+    // --- End of new skinning logic ---
 
     geometry.setAttribute('skinIndex', skinIndex);
     geometry.setAttribute('skinWeight', skinWeight);
