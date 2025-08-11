@@ -41,83 +41,77 @@ function distanceToSegmentSq(point, segStart, segEnd) {
 
 export async function rigCharacter(model, markers, modelInverseMatrix, onProgress) {
     onProgress(0.1, "Creating skeleton...");
-    await new Promise(res => setTimeout(res, 200));
+    await new Promise(res => setTimeout(res, 100));
 
-    // 1. Create bones from markers
+    // 1) Gather marker positions in model-local space and create bones
     const bones = [];
     const boneMap = new Map();
-    const markerPositions = new Map(); // Store local positions of markers
-    
-    // Transform marker world positions to the model's local space.
+    const markerPositions = new Map();
+
     for (const id of BONE_NAMES) {
         const worldPos = markers.get(id);
+        if (!worldPos) throw new Error(`Missing marker: ${id}`);
         const localPos = worldPos.clone().applyMatrix4(modelInverseMatrix);
         markerPositions.set(id, localPos);
-        
+
         const bone = new THREE.Bone();
         bone.name = id;
         boneMap.set(id, bone);
         bones.push(bone);
     }
 
-    // 2. Build hierarchy and set local positions
+    // 2) Build hierarchy and local positions
     for (const [id, bone] of boneMap.entries()) {
         const parentId = Object.keys(BONE_HIERARCHY).find(p => BONE_HIERARCHY[p].children.includes(id));
         if (parentId) {
             const parentBone = boneMap.get(parentId);
             parentBone.add(bone);
-            
-            // Position is relative to parent bone
             const childLocalPos = markerPositions.get(id);
             const parentLocalPos = markerPositions.get(parentId);
             bone.position.copy(childLocalPos).sub(parentLocalPos);
-
-        } else { // This is the root bone (hips)
+        } else {
+            // Root (hips)
             bone.position.copy(markerPositions.get(id));
         }
     }
 
+    // Skeleton from bone list
     const skeleton = new THREE.Skeleton(bones);
+    const rootBone = boneMap.get('hips');
 
-    // 3. Find the mesh and prepare it for skinning
-    let targetMesh;
+    // 3) Collect ALL meshes under the model
+    const sourceMeshes = [];
+    model.updateMatrixWorld(true);
     model.traverse(child => {
-        if (child.isMesh && !targetMesh) {
-            targetMesh = child;
+        if (child.isMesh && child.geometry && child.geometry.attributes?.position) {
+            sourceMeshes.push(child);
         }
     });
 
-    if (!targetMesh) {
-        throw new Error("No mesh found in the model.");
+    if (sourceMeshes.length === 0) {
+        throw new Error("No meshes with geometry found in the model.");
     }
-    
-    // The geometry is already in the correct local space.
-    // We just need to ensure the mesh doesn't have a world transform applied.
-    targetMesh.position.set(0,0,0);
-    targetMesh.rotation.set(0,0,0);
-    targetMesh.scale.set(1,1,1);
-    targetMesh.updateMatrixWorld(true);
-
 
     onProgress(0.4, "Computing skinning weights...");
-    await new Promise(res => setTimeout(res, 200));
+    await new Promise(res => setTimeout(res, 100));
 
-    const geometry = targetMesh.geometry;
-    const position = geometry.attributes.position;
-    const skinIndex = new THREE.BufferAttribute(new Uint16Array(position.count * 4), 4);
-    const skinWeight = new THREE.BufferAttribute(new Float32Array(position.count * 4), 4);
+    // Helper for distance-to-segment squared
+    function distanceToSegmentSq(point, segStart, segEnd) {
+        const l2 = segStart.distanceToSquared(segEnd);
+        if (l2 === 0) return point.distanceToSquared(segStart);
+        let t = ((point.x - segStart.x) * (segEnd.x - segStart.x) + (point.y - segStart.y) * (segEnd.y - segStart.y) + (point.z - segStart.z) * (segEnd.z - segStart.z)) / l2;
+        t = Math.max(0, Math.min(1, t));
+        const closestPointOnSegment = segStart.clone().lerp(segEnd, t);
+        return point.distanceToSquared(closestPointOnSegment);
+    }
 
-    // --- New skinning weight logic ---
-    // Create bone segments (start and end points) in local space for more accurate distance calculation.
+    // Precompute bone segments in model-local space
     const boneSegments = [];
     const boneIndexMap = new Map(bones.map((bone, index) => [bone.name, index]));
-
     for (const bone of bones) {
         const startPos = markerPositions.get(bone.name);
         const childrenNames = BONE_HIERARCHY[bone.name]?.children || [];
-        
         if (childrenNames.length > 0) {
-            // For bones with children, create segments to each child.
             for (const childName of childrenNames) {
                 const endPos = markerPositions.get(childName);
                 if (endPos) {
@@ -130,8 +124,6 @@ export async function rigCharacter(model, markers, modelInverseMatrix, onProgres
                 }
             }
         } else {
-             // For leaf bones (like wrists/ankles), treat them as a point.
-             // We represent this as a zero-length segment.
             boneSegments.push({
                 boneIndex: boneIndexMap.get(bone.name),
                 boneName: bone.name,
@@ -141,27 +133,20 @@ export async function rigCharacter(model, markers, modelInverseMatrix, onProgres
         }
     }
 
-    // Region guards to prevent cross-limb influences (e.g., head pulled by shoulders)
+    // Region guards (all in model-local space)
     const hipsPos = markerPositions.get('hips')?.clone() || new THREE.Vector3();
     const neckPos = markerPositions.get('neck')?.clone() || new THREE.Vector3();
     const spinePos = markerPositions.get('spine')?.clone() || new THREE.Vector3();
-    const leftShoulderPos = markerPositions.get('left_shoulder')?.clone() || new THREE.Vector3();
-    const rightShoulderPos = markerPositions.get('right_shoulder')?.clone() || new THREE.Vector3();
 
-    // Midline (split left/right by hips X)
     const midX = hipsPos.x;
-    // Small tolerances
-    const headGuard = 0.02;   // vertical tolerance above neck before we consider it "head area"
-    const sideTol = 0.01;     // tolerance around the midline for side checks
+    const headGuard = 0.02;
+    const sideTol = 0.01;
 
-    // Helper: whether a vertex is allowed to be influenced by a given bone
-    function allowBoneForVertex(boneName, v) {
-        const isHeadArea = v.y > (neckPos.y + headGuard);
+    function allowBoneForVertex(boneName, vModelLocal) {
+        const isHeadArea = vModelLocal.y > (neckPos.y + headGuard);
 
-        // 1) Protect head area from arm bones completely
         if (isHeadArea) {
             if (boneName.startsWith('left_') || boneName.startsWith('right_')) {
-                // Allow only hips/spine/neck from the torso for the head area
                 if (boneName.includes('hip') || boneName.includes('knee') || boneName.includes('ankle') ||
                     boneName.includes('shoulder') || boneName.includes('elbow') || boneName.includes('wrist') || boneName.includes('clavicle')) {
                     return false;
@@ -169,142 +154,162 @@ export async function rigCharacter(model, markers, modelInverseMatrix, onProgres
             }
         }
 
-        // 2) Side gating: left arm bones should mostly not affect the right side of the body and vice versa
         if (boneName.startsWith('left_')) {
-            if (v.x < (midX - sideTol)) return false;
+            if (vModelLocal.x < (midX - sideTol)) return false;
         }
         if (boneName.startsWith('right_')) {
-            if (v.x > (midX + sideTol)) return false;
+            if (vModelLocal.x > (midX + sideTol)) return false;
         }
 
-        // 3) Optional vertical gating for arms: avoid arm bones influencing far above the neck
-        if ((boneName.includes('shoulder') || boneName.includes('elbow') || boneName.includes('wrist') || boneName.includes('clavicle')) && v.y > (neckPos.y + headGuard)) {
+        if ((boneName.includes('shoulder') || boneName.includes('elbow') || boneName.includes('wrist') || boneName.includes('clavicle')) &&
+            vModelLocal.y > (neckPos.y + headGuard)) {
             return false;
         }
 
-        // 4) Optional vertical gating for legs: avoid leg bones influencing torso
-        if ((boneName.includes('knee') || boneName.includes('ankle') || boneName.includes('hip')) && v.y > spinePos.y) {
-            // Allow hips near pelvis level; for anything above spine mid, do not let leg bones pull
+        if ((boneName.includes('knee') || boneName.includes('ankle') || boneName.includes('hip')) && vModelLocal.y > spinePos.y) {
             if (!boneName.includes('hips')) return false;
         }
 
         return true;
     }
-    
-    for (let i = 0; i < position.count; i++) {
-        const vertex = new THREE.Vector3().fromBufferAttribute(position, i);
 
-        // Calculate distance from the vertex to each bone segment.
-        const boneDistances = boneSegments.map(segment => {
-            // Apply region/side guards by inflating distance if not allowed
-            const allowed = allowBoneForVertex(segment.boneName, vertex);
-            const distanceSq = allowed ? distanceToSegmentSq(vertex, segment.start, segment.end) : Number.POSITIVE_INFINITY;
-            return {
-                index: segment.boneIndex,
-                name: segment.boneName,
-                distanceSq
-            };
-        });
+    function computeSkinAttributesForGeometry(geometry, meshLocalToModelMatrix) {
+        const position = geometry.attributes.position;
+        const skinIndex = new THREE.BufferAttribute(new Uint16Array(position.count * 4), 4);
+        const skinWeight = new THREE.BufferAttribute(new Float32Array(position.count * 4), 4);
 
-        // Group distances by bone index, keeping the minimum distance for bones with multiple segments (e.g., hips, neck).
-        const minBoneDistances = new Map();
-        for (const dist of boneDistances) {
-            if (!minBoneDistances.has(dist.index) || dist.distanceSq < minBoneDistances.get(dist.index).distanceSq) {
-                minBoneDistances.set(dist.index, { distanceSq: dist.distanceSq, name: dist.name });
+        const temp = new THREE.Vector3();
+
+        for (let i = 0; i < position.count; i++) {
+            temp.fromBufferAttribute(position, i).applyMatrix4(meshLocalToModelMatrix);
+
+            const boneDistances = boneSegments.map(segment => {
+                const allowed = allowBoneForVertex(segment.boneName, temp);
+                const distanceSq = allowed ? distanceToSegmentSq(temp, segment.start, segment.end) : Number.POSITIVE_INFINITY;
+                return {
+                    index: segment.boneIndex,
+                    name: segment.boneName,
+                    distanceSq
+                };
+            });
+
+            const minBoneDistances = new Map();
+            for (const dist of boneDistances) {
+                if (!minBoneDistances.has(dist.index) || dist.distanceSq < minBoneDistances.get(dist.index).distanceSq) {
+                    minBoneDistances.set(dist.index, { distanceSq: dist.distanceSq });
+                }
             }
-        }
 
-        // Filter out INF distances (disallowed bones)
-        const uniqueBoneDistances = Array.from(minBoneDistances.entries())
-            .filter(([, obj]) => Number.isFinite(obj.distanceSq))
-            .map(([index, obj]) => ({
-                index,
-                distance: Math.sqrt(obj.distanceSq)
-            }));
-
-        // Safety fallback: if everything was filtered out, allow closest torso bone (hips/spine/neck)
-        if (uniqueBoneDistances.length === 0) {
-            const torsoCandidates = ['hips', 'spine', 'neck'];
-            const torsoDistances = boneSegments
-                .filter(s => torsoCandidates.includes(s.boneName))
-                .map(s => ({
-                    index: s.boneIndex,
-                    distance: Math.sqrt(distanceToSegmentSq(vertex, s.start, s.end))
+            const uniqueBoneDistances = Array.from(minBoneDistances.entries())
+                .filter(([, obj]) => Number.isFinite(obj.distanceSq))
+                .map(([index, obj]) => ({
+                    index,
+                    distance: Math.sqrt(obj.distanceSq)
                 }));
-            torsoDistances.sort((a, b) => a.distance - b.distance);
-            uniqueBoneDistances.push(...torsoDistances.slice(0, 4));
-        }
 
-        uniqueBoneDistances.sort((a, b) => a.distance - b.distance);
-
-        const closestBones = uniqueBoneDistances.slice(0, 4);
-        let totalWeight = 0;
-        
-        const weights = closestBones.map(b => {
-            // Using a power of 4 for faster falloff, which can help reduce unwanted influence from distant bones.
-            const weight = 1.0 / (Math.pow(b.distance, 4) + 1e-8);
-            totalWeight += weight;
-            return { weight, index: b.index };
-        });
-
-        // Normalize weights
-        const finalWeights = [];
-        for(let j = 0; j < 4; j++) {
-            if(weights[j]) {
-                finalWeights.push({
-                    index: weights[j].index,
-                    weight: weights[j].weight / totalWeight
-                });
-            } else {
-                finalWeights.push({ index: 0, weight: 0 });
+            if (uniqueBoneDistances.length === 0) {
+                const torsoCandidates = ['hips', 'spine', 'neck'];
+                const torsoDistances = boneSegments
+                    .filter(s => torsoCandidates.includes(s.boneName))
+                    .map(s => ({
+                        index: s.boneIndex,
+                        distance: Math.sqrt(distanceToSegmentSq(temp, s.start, s.end))
+                    }));
+                torsoDistances.sort((a, b) => a.distance - b.distance);
+                uniqueBoneDistances.push(...torsoDistances.slice(0, 4));
             }
+
+            uniqueBoneDistances.sort((a, b) => a.distance - b.distance);
+            const closestBones = uniqueBoneDistances.slice(0, 4);
+
+            let totalWeight = 0;
+            const weights = closestBones.map(b => {
+                const w = 1.0 / (Math.pow(b.distance, 4) + 1e-8);
+                totalWeight += w;
+                return { index: b.index, weight: w };
+            });
+
+            const final = [];
+            for (let j = 0; j < 4; j++) {
+                if (weights[j]) {
+                    final.push({ index: weights[j].index, weight: weights[j].weight / totalWeight });
+                } else {
+                    final.push({ index: 0, weight: 0 });
+                }
+            }
+
+            skinIndex.setXYZW(i, final[0].index, final[1].index, final[2].index, final[3].index);
+            skinWeight.setXYZW(i, final[0].weight, final[1].weight, final[2].weight, final[3].weight);
         }
 
-        skinIndex.setXYZW(i, finalWeights[0].index, finalWeights[1].index, finalWeights[2].index, finalWeights[3].index);
-        skinWeight.setXYZW(i, finalWeights[0].weight, finalWeights[1].weight, finalWeights[2].weight, finalWeights[3].weight);
-    }
-    // --- End of new skinning logic ---
-
-    geometry.setAttribute('skinIndex', skinIndex);
-    geometry.setAttribute('skinWeight', skinWeight);
-
-    // 4. Create SkinnedMesh
-    const material = targetMesh.material;
-    // Ensure skinning is enabled on ALL materials (single or multi-material)
-    let skinnedMaterial;
-    if (Array.isArray(material)) {
-        skinnedMaterial = material.map((m) => {
-            const mat = m.clone ? m.clone() : m;
-            if ('skinning' in mat) mat.skinning = true;
-            return mat;
-        });
-    } else {
-        skinnedMaterial = material && material.clone ? material.clone() : material;
-        if (skinnedMaterial && 'skinning' in skinnedMaterial) {
-            skinnedMaterial.skinning = true;
-        }
+        geometry.setAttribute('skinIndex', skinIndex);
+        geometry.setAttribute('skinWeight', skinWeight);
     }
 
-    const skinnedMesh = new THREE.SkinnedMesh(geometry, skinnedMaterial);
-    skinnedMesh.frustumCulled = false; // avoid any visual popping during animation
-    
-    // Add the root bone to the skinned mesh
-    skinnedMesh.add(boneMap.get('hips')); 
-    skinnedMesh.bind(skeleton);
-    
-    // The skinned mesh is created at the origin, which matches the model's centered position.
+    // 4) Build rigged model with a shared skeleton and skinned meshes for ALL parts
+    onProgress(0.75, "Binding meshes to skeleton...");
+    await new Promise(res => setTimeout(res, 50));
+
+    const riggedModel = new THREE.Group();
+    riggedModel.name = 'RiggedModel';
+
+    // Place bones once into the rigged model (model-local space)
+    const bonesRoot = new THREE.Group();
+    bonesRoot.name = 'BonesRoot';
+    bonesRoot.add(rootBone);
+    riggedModel.add(bonesRoot);
+
+    // Prepare each mesh
+    const skinnedMeshes = [];
+    for (const srcMesh of sourceMeshes) {
+        // Build transform that converts geometry positions from mesh-local to model-local
+        // modelInverseMatrix is inverse(model.matrixWorld), so:
+        // modelLocalPos = modelInverseMatrix * mesh.matrixWorld * meshLocalPos
+        const meshLocalToModelMatrix = new THREE.Matrix4().copy(srcMesh.matrixWorld).premultiply(modelInverseMatrix);
+
+        // Clone geometry so we don't mutate original, and compute weights for this mesh
+        const geometry = srcMesh.geometry.clone();
+        computeSkinAttributesForGeometry(geometry, meshLocalToModelMatrix);
+
+        // Material(s) with skinning enabled
+        const material = Array.isArray(srcMesh.material)
+            ? srcMesh.material.map(m => {
+                const c = m.clone ? m.clone() : m;
+                if ('skinning' in c) c.skinning = true;
+                return c;
+            })
+            : (() => {
+                const c = srcMesh.material && srcMesh.material.clone ? srcMesh.material.clone() : srcMesh.material;
+                if (c && 'skinning' in c) c.skinning = true;
+                return c;
+            })();
+
+        const skinnedMesh = new THREE.SkinnedMesh(geometry, material);
+        skinnedMesh.name = srcMesh.name || 'SkinnedPart';
+        skinnedMesh.frustumCulled = false;
+
+        // Copy the original local transform relative to the model
+        skinnedMesh.position.copy(srcMesh.position);
+        skinnedMesh.quaternion.copy(srcMesh.quaternion);
+        skinnedMesh.scale.copy(srcMesh.scale);
+
+        // Ensure matrices are updated before binding
+        riggedModel.add(skinnedMesh);
+        riggedModel.updateMatrixWorld(true);
+        bonesRoot.updateMatrixWorld(true);
+
+        skinnedMesh.bind(skeleton);
+
+        skinnedMeshes.push(skinnedMesh);
+    }
 
     onProgress(0.9, "Finalizing rig...");
-    await new Promise(res => setTimeout(res, 200));
-    
-    // Create a new model group to hold the final result
-    const riggedModel = new THREE.Group();
-    riggedModel.add(skinnedMesh);
-    
-    // Add a simple test animation
-    const animations = createTestAnimations(skeleton, boneMap.get('hips').position, markerPositions);
+    await new Promise(res => setTimeout(res, 50));
 
-    return { riggedModel: riggedModel, animations };
+    // 5) Create test animations (uses marker-based adaptive idle + wave)
+    const animations = createTestAnimations(skeleton, boneMap.get('hips').position.clone(), markerPositions);
+
+    return { riggedModel, animations };
 }
 
 function createTestAnimations(skeleton, hipPos, markerPositions) {
