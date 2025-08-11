@@ -341,7 +341,8 @@ function createTestAnimations(skeleton, hipPos, markerPositions) {
         // Light knee bends alternating
         const kneeBendAngle = Math.PI / 30; // ~6 degrees
         const qKnee_Base = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, 0));
-        const qKnee_Bent = new THREE.Quaternion().setFromEuler(new THREE.Euler(kneeBendAngle, 0, 0));
+        const qKnee_Bent = new THREE.Quaternion().setFromEuler(new THREE.Euler(-kneeBendAngle, 0, 0));
+
         tracks.push(new THREE.QuaternionKeyframeTrack(`${kneeR.name}.quaternion`, idleTimes, [
             ...qKnee_Base.toArray(), ...qKnee_Bent.toArray(), ...qKnee_Base.toArray(), ...qKnee_Base.toArray(), ...qKnee_Base.toArray()
         ], interpolation));
@@ -450,28 +451,28 @@ function createTestAnimations(skeleton, hipPos, markerPositions) {
         const kneeBendAngle = Math.PI / 4; // 45 degrees - more pronounced bend
         const kneeContactAngle = Math.PI / 36; // Slight bend even when straight
         walkTracks.push(new THREE.QuaternionKeyframeTrack(`${kneeL.name}.quaternion`, walkTimes, [
-            ...new THREE.Quaternion().setFromEuler(new THREE.Euler(kneeContactAngle, 0, 0)).toArray(), // Contact - slight bend for absorption
-            ...new THREE.Quaternion().setFromEuler(new THREE.Euler(kneeBendAngle * 0.3, 0, 0)).toArray(), // Starting to lift
-            ...new THREE.Quaternion().setFromEuler(new THREE.Euler(kneeBendAngle, 0, 0)).toArray(),   // Max bend (mid-swing)
-            ...new THREE.Quaternion().setFromEuler(new THREE.Euler(kneeBendAngle * 0.7, 0, 0)).toArray(), // Extending for landing
-            ...new THREE.Quaternion().setFromEuler(new THREE.Euler(kneeBendAngle * 0.2, 0, 0)).toArray(), // Almost straight for landing
-            ...new THREE.Quaternion().setFromEuler(new THREE.Euler(kneeContactAngle, 0, 0)).toArray(), // Supporting leg - slight bend
-            ...new THREE.Quaternion().setFromEuler(new THREE.Euler(kneeContactAngle, 0, 0)).toArray(), // Still supporting
-            ...new THREE.Quaternion().setFromEuler(new THREE.Euler(kneeContactAngle, 0, 0)).toArray(), // Still supporting
-            ...new THREE.Quaternion().setFromEuler(new THREE.Euler(kneeContactAngle, 0, 0)).toArray(), // Contact phase again
+            ...new THREE.Quaternion().setFromEuler(new THREE.Euler(-kneeContactAngle, 0, 0)).toArray(), // Contact - slight bend for absorption
+            ...new THREE.Quaternion().setFromEuler(new THREE.Euler(-kneeBendAngle * 0.3, 0, 0)).toArray(), // Starting to lift
+            ...new THREE.Quaternion().setFromEuler(new THREE.Euler(-kneeBendAngle, 0, 0)).toArray(),   // Max bend (mid-swing)
+            ...new THREE.Quaternion().setFromEuler(new THREE.Euler(-kneeBendAngle * 0.7, 0, 0)).toArray(), // Extending for landing
+            ...new THREE.Quaternion().setFromEuler(new THREE.Euler(-kneeBendAngle * 0.2, 0, 0)).toArray(), // Almost straight for landing
+            ...new THREE.Quaternion().setFromEuler(new THREE.Euler(-kneeContactAngle, 0, 0)).toArray(), // Supporting leg - slight bend
+            ...new THREE.Quaternion().setFromEuler(new THREE.Euler(-kneeContactAngle, 0, 0)).toArray(), // Still supporting
+            ...new THREE.Quaternion().setFromEuler(new THREE.Euler(-kneeContactAngle, 0, 0)).toArray(), // Still supporting
+            ...new THREE.Quaternion().setFromEuler(new THREE.Euler(-kneeContactAngle, 0, 0)).toArray(), // Contact phase again
         ], interpolation));
 
         // Right knee - opposite phase with same realism
         walkTracks.push(new THREE.QuaternionKeyframeTrack(`${kneeR.name}.quaternion`, walkTimes, [
-            ...new THREE.Quaternion().setFromEuler(new THREE.Euler(kneeBendAngle * 0.2, 0, 0)).toArray(), // Almost straight for landing
-            ...new THREE.Quaternion().setFromEuler(new THREE.Euler(kneeContactAngle, 0, 0)).toArray(), // Supporting leg - slight bend
-            ...new THREE.Quaternion().setFromEuler(new THREE.Euler(kneeContactAngle, 0, 0)).toArray(), // Still supporting
-            ...new THREE.Quaternion().setFromEuler(new THREE.Euler(kneeContactAngle, 0, 0)).toArray(), // Still supporting
-            ...new THREE.Quaternion().setFromEuler(new THREE.Euler(kneeContactAngle, 0, 0)).toArray(), // Contact - slight bend for absorption
-            ...new THREE.Quaternion().setFromEuler(new THREE.Euler(kneeBendAngle * 0.3, 0, 0)).toArray(), // Starting to lift
-            ...new THREE.Quaternion().setFromEuler(new THREE.Euler(kneeBendAngle, 0, 0)).toArray(),   // Max bend (mid-swing)
-            ...new THREE.Quaternion().setFromEuler(new THREE.Euler(kneeBendAngle * 0.7, 0, 0)).toArray(), // Extending for landing
-            ...new THREE.Quaternion().setFromEuler(new THREE.Euler(kneeBendAngle * 0.2, 0, 0)).toArray(), // Almost straight for landing
+            ...new THREE.Quaternion().setFromEuler(new THREE.Euler(-kneeBendAngle * 0.2, 0, 0)).toArray(), // Almost straight for landing
+            ...new THREE.Quaternion().setFromEuler(new THREE.Euler(-kneeContactAngle, 0, 0)).toArray(), // Supporting leg - slight bend
+            ...new THREE.Quaternion().setFromEuler(new THREE.Euler(-kneeContactAngle, 0, 0)).toArray(), // Still supporting
+            ...new THREE.Quaternion().setFromEuler(new THREE.Euler(-kneeContactAngle, 0, 0)).toArray(), // Still supporting
+            ...new THREE.Quaternion().setFromEuler(new THREE.Euler(-kneeContactAngle, 0, 0)).toArray(), // Contact - slight bend for absorption
+            ...new THREE.Quaternion().setFromEuler(new THREE.Euler(-kneeBendAngle * 0.3, 0, 0)).toArray(), // Starting to lift
+            ...new THREE.Quaternion().setFromEuler(new THREE.Euler(-kneeBendAngle, 0, 0)).toArray(),   // Max bend (mid-swing)
+            ...new THREE.Quaternion().setFromEuler(new THREE.Euler(-kneeBendAngle * 0.7, 0, 0)).toArray(), // Extending for landing
+            ...new THREE.Quaternion().setFromEuler(new THREE.Euler(-kneeBendAngle * 0.2, 0, 0)).toArray(), // Almost straight for landing
         ], interpolation));
 
         // Add ankle movement for more realism
