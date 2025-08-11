@@ -123,6 +123,7 @@ export async function rigCharacter(model, markers, modelInverseMatrix, onProgres
                 if (endPos) {
                     boneSegments.push({
                         boneIndex: boneIndexMap.get(bone.name),
+                        boneName: bone.name,
                         start: startPos,
                         end: endPos
                     });
@@ -133,34 +134,106 @@ export async function rigCharacter(model, markers, modelInverseMatrix, onProgres
              // We represent this as a zero-length segment.
             boneSegments.push({
                 boneIndex: boneIndexMap.get(bone.name),
+                boneName: bone.name,
                 start: startPos,
                 end: startPos
             });
         }
+    }
+
+    // Region guards to prevent cross-limb influences (e.g., head pulled by shoulders)
+    const hipsPos = markerPositions.get('hips')?.clone() || new THREE.Vector3();
+    const neckPos = markerPositions.get('neck')?.clone() || new THREE.Vector3();
+    const spinePos = markerPositions.get('spine')?.clone() || new THREE.Vector3();
+    const leftShoulderPos = markerPositions.get('left_shoulder')?.clone() || new THREE.Vector3();
+    const rightShoulderPos = markerPositions.get('right_shoulder')?.clone() || new THREE.Vector3();
+
+    // Midline (split left/right by hips X)
+    const midX = hipsPos.x;
+    // Small tolerances
+    const headGuard = 0.02;   // vertical tolerance above neck before we consider it "head area"
+    const sideTol = 0.01;     // tolerance around the midline for side checks
+
+    // Helper: whether a vertex is allowed to be influenced by a given bone
+    function allowBoneForVertex(boneName, v) {
+        const isHeadArea = v.y > (neckPos.y + headGuard);
+
+        // 1) Protect head area from arm bones completely
+        if (isHeadArea) {
+            if (boneName.startsWith('left_') || boneName.startsWith('right_')) {
+                // Allow only hips/spine/neck from the torso for the head area
+                if (boneName.includes('hip') || boneName.includes('knee') || boneName.includes('ankle') ||
+                    boneName.includes('shoulder') || boneName.includes('elbow') || boneName.includes('wrist') || boneName.includes('clavicle')) {
+                    return false;
+                }
+            }
+        }
+
+        // 2) Side gating: left arm bones should mostly not affect the right side of the body and vice versa
+        if (boneName.startsWith('left_')) {
+            if (v.x < (midX - sideTol)) return false;
+        }
+        if (boneName.startsWith('right_')) {
+            if (v.x > (midX + sideTol)) return false;
+        }
+
+        // 3) Optional vertical gating for arms: avoid arm bones influencing far above the neck
+        if ((boneName.includes('shoulder') || boneName.includes('elbow') || boneName.includes('wrist') || boneName.includes('clavicle')) && v.y > (neckPos.y + headGuard)) {
+            return false;
+        }
+
+        // 4) Optional vertical gating for legs: avoid leg bones influencing torso
+        if ((boneName.includes('knee') || boneName.includes('ankle') || boneName.includes('hip')) && v.y > spinePos.y) {
+            // Allow hips near pelvis level; for anything above spine mid, do not let leg bones pull
+            if (!boneName.includes('hips')) return false;
+        }
+
+        return true;
     }
     
     for (let i = 0; i < position.count; i++) {
         const vertex = new THREE.Vector3().fromBufferAttribute(position, i);
 
         // Calculate distance from the vertex to each bone segment.
-        const boneDistances = boneSegments.map(segment => ({
-            index: segment.boneIndex,
-            // Use squared distance for efficiency
-            distanceSq: distanceToSegmentSq(vertex, segment.start, segment.end)
-        }));
+        const boneDistances = boneSegments.map(segment => {
+            // Apply region/side guards by inflating distance if not allowed
+            const allowed = allowBoneForVertex(segment.boneName, vertex);
+            const distanceSq = allowed ? distanceToSegmentSq(vertex, segment.start, segment.end) : Number.POSITIVE_INFINITY;
+            return {
+                index: segment.boneIndex,
+                name: segment.boneName,
+                distanceSq
+            };
+        });
 
         // Group distances by bone index, keeping the minimum distance for bones with multiple segments (e.g., hips, neck).
         const minBoneDistances = new Map();
         for (const dist of boneDistances) {
-            if (!minBoneDistances.has(dist.index) || dist.distanceSq < minBoneDistances.get(dist.index)) {
-                minBoneDistances.set(dist.index, dist.distanceSq);
+            if (!minBoneDistances.has(dist.index) || dist.distanceSq < minBoneDistances.get(dist.index).distanceSq) {
+                minBoneDistances.set(dist.index, { distanceSq: dist.distanceSq, name: dist.name });
             }
         }
 
-        const uniqueBoneDistances = Array.from(minBoneDistances.entries()).map(([index, distanceSq]) => ({
-            index,
-            distance: Math.sqrt(distanceSq) // Now take the square root
-        }));
+        // Filter out INF distances (disallowed bones)
+        const uniqueBoneDistances = Array.from(minBoneDistances.entries())
+            .filter(([, obj]) => Number.isFinite(obj.distanceSq))
+            .map(([index, obj]) => ({
+                index,
+                distance: Math.sqrt(obj.distanceSq)
+            }));
+
+        // Safety fallback: if everything was filtered out, allow closest torso bone (hips/spine/neck)
+        if (uniqueBoneDistances.length === 0) {
+            const torsoCandidates = ['hips', 'spine', 'neck'];
+            const torsoDistances = boneSegments
+                .filter(s => torsoCandidates.includes(s.boneName))
+                .map(s => ({
+                    index: s.boneIndex,
+                    distance: Math.sqrt(distanceToSegmentSq(vertex, s.start, s.end))
+                }));
+            torsoDistances.sort((a, b) => a.distance - b.distance);
+            uniqueBoneDistances.push(...torsoDistances.slice(0, 4));
+        }
 
         uniqueBoneDistances.sort((a, b) => a.distance - b.distance);
 
