@@ -270,12 +270,23 @@ export async function rigCharacter(model, markers, modelInverseMatrix, onProgres
 
     // 4. Create SkinnedMesh
     const material = targetMesh.material;
-    // THREE.Material doesn't have a skinning property, so we must check for it.
-    if(material && 'skinning' in material) {
-        material.skinning = true;
+    // Ensure skinning is enabled on ALL materials (single or multi-material)
+    let skinnedMaterial;
+    if (Array.isArray(material)) {
+        skinnedMaterial = material.map((m) => {
+            const mat = m.clone ? m.clone() : m;
+            if ('skinning' in mat) mat.skinning = true;
+            return mat;
+        });
+    } else {
+        skinnedMaterial = material && material.clone ? material.clone() : material;
+        if (skinnedMaterial && 'skinning' in skinnedMaterial) {
+            skinnedMaterial.skinning = true;
+        }
     }
 
-    const skinnedMesh = new THREE.SkinnedMesh(geometry, material);
+    const skinnedMesh = new THREE.SkinnedMesh(geometry, skinnedMaterial);
+    skinnedMesh.frustumCulled = false; // avoid any visual popping during animation
     
     // Add the root bone to the skinned mesh
     skinnedMesh.add(boneMap.get('hips')); 
