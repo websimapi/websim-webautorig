@@ -226,11 +226,15 @@ export async function rigCharacter(model, markers, modelInverseMatrix, onProgres
 function createTestAnimations(skeleton, hipPos, markerPositions) {
     const animations = {};
     
-    const shoulderR = skeleton.getBoneByName('right_shoulder');
-    const elbowR = skeleton.getBoneByName('right_elbow');
+    // Get all bones we might need for animations
     const hips = skeleton.getBoneByName('hips');
     const spine = skeleton.getBoneByName('spine');
     const shoulderL = skeleton.getBoneByName('left_shoulder');
+    const shoulderR = skeleton.getBoneByName('right_shoulder');
+    const elbowR = skeleton.getBoneByName('right_elbow');
+    const kneeL = skeleton.getBoneByName('left_knee');
+    const kneeR = skeleton.getBoneByName('right_knee');
+
 
     // Wave animation for right arm
     if (shoulderR && elbowR) {
@@ -262,35 +266,72 @@ function createTestAnimations(skeleton, hipPos, markerPositions) {
         animations.wave = waveClip;
     }
 
-    // Idle Animation
-    if (hips && spine && shoulderL && shoulderR) {
+    // New Idle Animation
+    if (hips && spine && shoulderL && shoulderR && kneeL && kneeR) {
         const idleTimes = [0, 1, 2, 3, 4];
         const interpolation = THREE.InterpolateSmooth;
+        const tracks = [];
 
-        // Hips position for breathing effect
-        const breathHeight = 0.005; // very subtle breathing motion
-        const initialHipY = hipPos.y;
-        const hipPositionValues = [
-            hips.position.x, initialHipY, hips.position.z,
-            hips.position.x, initialHipY + breathHeight, hips.position.z,
-            hips.position.x, initialHipY, hips.position.z,
-            hips.position.x, initialHipY - breathHeight, hips.position.z,
-            hips.position.x, initialHipY, hips.position.z,
-        ];
-        const hipTrack = new THREE.VectorKeyframeTrack(`${hips.name}.position`, idleTimes, hipPositionValues, interpolation);
+        // --- Arm position: lower from T-pose to a resting pose ---
+        const armRestEulerL = new THREE.Euler(0, 0, -Math.PI / 2.5); // Lower left arm
+        const armRestEulerR = new THREE.Euler(0, 0, Math.PI / 2.5); // Lower right arm
 
-        // Spine rotation for a subtle sway
-        const swayAngle = Math.PI / 180; // 1 degree
-        const spineSwayValues = [
-            ...new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, 0)).toArray(),
-            ...new THREE.Quaternion().setFromEuler(new THREE.Euler(swayAngle, 0, 0)).toArray(),
-            ...new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, 0)).toArray(),
-            ...new THREE.Quaternion().setFromEuler(new THREE.Euler(-swayAngle, 0, 0)).toArray(),
-            ...new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, 0)).toArray(),
-        ];
-        const spineTrack = new THREE.QuaternionKeyframeTrack(`${spine.name}.quaternion`, idleTimes, spineSwayValues, interpolation);
+        // Add a very subtle arm swing
+        const armSwayAngle = Math.PI / 36; // 5 degrees
         
-        const idleClip = new THREE.AnimationClip('idle', -1, [hipTrack, spineTrack]);
+        const qL_Base = new THREE.Quaternion().setFromEuler(armRestEulerL);
+        const qL_Fwd = new THREE.Quaternion().setFromEuler(new THREE.Euler(armSwayAngle, 0, armRestEulerL.z));
+        const qL_Back = new THREE.Quaternion().setFromEuler(new THREE.Euler(-armSwayAngle, 0, armRestEulerL.z));
+        
+        const qR_Base = new THREE.Quaternion().setFromEuler(armRestEulerR);
+        const qR_Fwd = new THREE.Quaternion().setFromEuler(new THREE.Euler(armSwayAngle, 0, armRestEulerR.z));
+        const qR_Back = new THREE.Quaternion().setFromEuler(new THREE.Euler(-armSwayAngle, 0, armRestEulerR.z));
+
+        tracks.push(new THREE.QuaternionKeyframeTrack(`${shoulderL.name}.quaternion`, idleTimes, [
+            ...qL_Base.toArray(), ...qL_Fwd.toArray(), ...qL_Base.toArray(), ...qL_Back.toArray(), ...qL_Base.toArray()
+        ], interpolation));
+        
+        tracks.push(new THREE.QuaternionKeyframeTrack(`${shoulderR.name}.quaternion`, idleTimes, [
+            ...qR_Base.toArray(), ...qR_Back.toArray(), ...qR_Base.toArray(), ...qR_Fwd.toArray(), ...qR_Base.toArray()
+        ], interpolation));
+
+
+        // --- Body Sway: Hips and Spine ---
+        const swayAmount = 0.01; // meters
+        const initialHipPos = hipPos.clone();
+        tracks.push(new THREE.VectorKeyframeTrack(`${hips.name}.position`, idleTimes, [
+            initialHipPos.x, initialHipPos.y, initialHipPos.z,
+            initialHipPos.x + swayAmount, initialHipPos.y, initialHipPos.z,
+            initialHipPos.x, initialHipPos.y, initialHipPos.z,
+            initialHipPos.x - swayAmount, initialHipPos.y, initialHipPos.z,
+            initialHipPos.x, initialHipPos.y, initialHipPos.z,
+        ], interpolation));
+
+        // Counter-rotate spine to keep head level
+        const spineSwayAngle = -swayAmount / 0.2; // Heuristic for counter-rotation
+        const qSpine_Base = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, 0));
+        const qSpine_L = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, spineSwayAngle));
+        const qSpine_R = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, -spineSwayAngle));
+        tracks.push(new THREE.QuaternionKeyframeTrack(`${spine.name}.quaternion`, idleTimes, [
+            ...qSpine_Base.toArray(), ...qSpine_L.toArray(), ...qSpine_Base.toArray(), ...qSpine_R.toArray(), ...qSpine_Base.toArray()
+        ], interpolation));
+
+
+        // --- Leg Bending ---
+        const kneeBendAngle = Math.PI / 30; // 6 degrees
+        const qKnee_Base = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, 0));
+        const qKnee_Bent = new THREE.Quaternion().setFromEuler(new THREE.Euler(kneeBendAngle, 0, 0));
+        
+        // Bend one knee as weight shifts to the other leg
+        tracks.push(new THREE.QuaternionKeyframeTrack(`${kneeR.name}.quaternion`, idleTimes, [
+            ...qKnee_Base.toArray(), ...qKnee_Bent.toArray(), ...qKnee_Base.toArray(), ...qKnee_Base.toArray(), ...qKnee_Base.toArray()
+        ], interpolation));
+        tracks.push(new THREE.QuaternionKeyframeTrack(`${kneeL.name}.quaternion`, idleTimes, [
+            ...qKnee_Base.toArray(), ...qKnee_Base.toArray(), ...qKnee_Base.toArray(), ...qKnee_Bent.toArray(), ...qKnee_Base.toArray()
+        ], interpolation));
+
+
+        const idleClip = new THREE.AnimationClip('idle', -1, tracks);
         animations.idle = idleClip;
     }
 
