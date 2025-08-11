@@ -187,10 +187,11 @@ class App {
         const animNames = Object.keys(this.animations);
         if (animNames.length > 0) {
             animControls.style.display = 'block';
-            animNames.forEach(name => {
+            animNames.sort().forEach(name => { 
                 const option = document.createElement('option');
                 option.value = name;
-                option.textContent = name.charAt(0).toUpperCase() + name.slice(1);
+                const label = name.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+                option.textContent = label;
                 animSelect.appendChild(option);
             });
         } else {
