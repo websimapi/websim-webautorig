@@ -146,7 +146,9 @@ export class Viewer {
         });
 
         if (skinnedMesh && skinnedMesh.skeleton) {
-            this.skeletonHelper = new THREE.SkeletonHelper(skinnedMesh.skeleton.bones[0]); // Pass root bone
+            // Use the actual root bone from the skinned mesh skeleton
+            const root = skinnedMesh.skeleton.bones[0];
+            this.skeletonHelper = new THREE.SkeletonHelper(root);
             this.skeletonHelper.visible = false;
             this.scene.add(this.skeletonHelper);
         }

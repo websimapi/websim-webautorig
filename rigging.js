@@ -3,14 +3,14 @@ import * as THREE from 'three';
 /**
  * Simplified auto-rigging implementation.
  * Creates a skeleton from markers, computes basic skinning weights,
- * and binds it to the a mesh.
+ * and binds it to the mesh.
  */
 
 const BONE_HIERARCHY = {
     'hips': { children: ['spine', 'left_hip', 'right_hip'] },
     'spine': { children: ['neck'] },
     'neck': { children: ['head', 'left_clavicle', 'right_clavicle'] },
-    'head': { children: [] },
+    'head': { children: ['head_top', 'chin'] }, /* 'chin' is optional and may not be placed */
     'left_clavicle': { children: ['left_shoulder'] },
     'right_clavicle': { children: ['right_shoulder'] },
     'left_shoulder': { children: ['left_elbow'] },
@@ -28,11 +28,6 @@ const BONE_HIERARCHY = {
 };
 
 const BONE_NAMES = Object.keys(BONE_HIERARCHY);
-
-// --- Bones on the left/right side of the body ---
-const LEFT_BONES = ['left_hip', 'left_knee', 'left_ankle', 'left_clavicle', 'left_shoulder', 'left_elbow', 'left_wrist'];
-const RIGHT_BONES = ['right_hip', 'right_knee', 'right_ankle', 'right_clavicle', 'right_shoulder', 'right_elbow', 'right_wrist'];
-
 
 // Helper function to calculate the squared distance from a point to a line segment.
 // It's more efficient to work with squared distances to avoid square roots.
@@ -57,6 +52,8 @@ export async function rigCharacter(model, markers, modelInverseMatrix, onProgres
     // Transform marker world positions to the model's local space.
     for (const id of BONE_NAMES) {
         const worldPos = markers.get(id);
+        // Allow optional markers like 'chin' to be missing
+        if (!worldPos) continue;
         const localPos = worldPos.clone().applyMatrix4(modelInverseMatrix);
         markerPositions.set(id, localPos);
         
@@ -68,18 +65,22 @@ export async function rigCharacter(model, markers, modelInverseMatrix, onProgres
 
     // 2. Build hierarchy and set local positions
     for (const [id, bone] of boneMap.entries()) {
-        const parentId = Object.keys(BONE_HIERARCHY).find(p => BONE_HIERARCHY[p].children.includes(id));
-        if (parentId) {
+        const parentId = Object.keys(BONE_HIERARCHY).find(p => (BONE_HIERARCHY[p].children || []).includes(id));
+        if (parentId && boneMap.has(parentId)) {
             const parentBone = boneMap.get(parentId);
             parentBone.add(bone);
             
             // Position is relative to parent bone
             const childLocalPos = markerPositions.get(id);
             const parentLocalPos = markerPositions.get(parentId);
-            bone.position.copy(childLocalPos).sub(parentLocalPos);
-
-        } else { // This is the root bone (hips)
-            bone.position.copy(markerPositions.get(id));
+            if (childLocalPos && parentLocalPos) {
+                bone.position.copy(childLocalPos).sub(parentLocalPos);
+            } else if (childLocalPos && !parentLocalPos) {
+                bone.position.copy(childLocalPos);
+            }
+        } else { // Root bone (hips)
+            const pos = markerPositions.get(id);
+            if (pos) bone.position.copy(pos);
         }
     }
 
@@ -104,7 +105,6 @@ export async function rigCharacter(model, markers, modelInverseMatrix, onProgres
     targetMesh.scale.set(1,1,1);
     targetMesh.updateMatrixWorld(true);
 
-
     onProgress(0.4, "Computing skinning weights...");
     await new Promise(res => setTimeout(res, 200));
 
@@ -113,21 +113,18 @@ export async function rigCharacter(model, markers, modelInverseMatrix, onProgres
     const skinIndex = new THREE.BufferAttribute(new Uint16Array(position.count * 4), 4);
     const skinWeight = new THREE.BufferAttribute(new Float32Array(position.count * 4), 4);
 
-    // --- New skinning weight logic ---
-    // Create bone segments (start and end points) in local space for more accurate distance calculation.
+    // Build bone segments (start/end) in local space
     const boneSegments = [];
     const boneIndexMap = new Map(bones.map((bone, index) => [bone.name, index]));
-    const boneNameMap = new Map(bones.map((bone, index) => [index, bone.name]));
 
     for (const bone of bones) {
         const startPos = markerPositions.get(bone.name);
-        const childrenNames = BONE_HIERARCHY[bone.name]?.children || [];
+        const childrenNames = (BONE_HIERARCHY[bone.name]?.children || []).filter(n => markerPositions.has(n));
         
         if (childrenNames.length > 0) {
-            // For bones with children, create segments to each child.
             for (const childName of childrenNames) {
                 const endPos = markerPositions.get(childName);
-                if (endPos) {
+                if (startPos && endPos) {
                     boneSegments.push({
                         boneIndex: boneIndexMap.get(bone.name),
                         start: startPos,
@@ -135,9 +132,7 @@ export async function rigCharacter(model, markers, modelInverseMatrix, onProgres
                     });
                 }
             }
-        } else {
-             // For leaf bones (like wrists/ankles), treat them as a point.
-             // We represent this as a zero-length segment.
+        } else if (startPos) {
             boneSegments.push({
                 boneIndex: boneIndexMap.get(bone.name),
                 start: startPos,
@@ -145,18 +140,25 @@ export async function rigCharacter(model, markers, modelInverseMatrix, onProgres
             });
         }
     }
-    
+
+    // Region-aware weighting to prevent head stretching by arm movement.
+    const neckPos = markerPositions.get('neck');
+    const allowedHeadBones = new Set(['neck', 'head', 'head_top', 'chin', 'spine'].filter(n => boneIndexMap.has(n)));
+    const armLegBones = new Set([
+        'left_clavicle','right_clavicle','left_shoulder','right_shoulder','left_elbow','right_elbow','left_wrist','right_wrist',
+        'left_hip','right_hip','left_knee','right_knee','left_ankle','right_ankle'
+    ].filter(n => boneIndexMap.has(n)));
+
     for (let i = 0; i < position.count; i++) {
         const vertex = new THREE.Vector3().fromBufferAttribute(position, i);
 
-        // Calculate distance from the vertex to each bone segment.
+        // Compute distances
         const boneDistances = boneSegments.map(segment => ({
             index: segment.boneIndex,
-            // Use squared distance for efficiency
             distanceSq: distanceToSegmentSq(vertex, segment.start, segment.end)
         }));
 
-        // Group distances by bone index, keeping the minimum distance for bones with multiple segments (e.g., hips, neck).
+        // Group by bone index, keep min distance
         const minBoneDistances = new Map();
         for (const dist of boneDistances) {
             if (!minBoneDistances.has(dist.index) || dist.distanceSq < minBoneDistances.get(dist.index)) {
@@ -164,38 +166,37 @@ export async function rigCharacter(model, markers, modelInverseMatrix, onProgres
             }
         }
 
-        let uniqueBoneDistances = Array.from(minBoneDistances.entries()).map(([index, distanceSq]) => ({
-            index,
-            distance: Math.sqrt(distanceSq) // Now take the square root
-        }));
-
-        // --- Symmetry Enforcement ---
-        // Prevent vertices on one side of the body from being influenced by bones on the other.
-        const isLeftVertex = vertex.x < 0;
-        uniqueBoneDistances = uniqueBoneDistances.filter(dist => {
-            const boneName = boneNameMap.get(dist.index);
-            if (isLeftVertex) {
-                return !RIGHT_BONES.includes(boneName);
-            } else { // isRightVertex (or perfectly center)
-                return !LEFT_BONES.includes(boneName);
+        // Region gating: if vertex above neck Y, strongly prefer head-related bones and de-emphasize arms/legs
+        if (neckPos) {
+            const isHeadRegion = vertex.y > neckPos.y;
+            if (isHeadRegion) {
+                // Inflate distances for non-head bones, especially arms/legs
+                for (const [idx, d2] of minBoneDistances.entries()) {
+                    const name = bones[idx].name;
+                    if (!allowedHeadBones.has(name)) {
+                        // Increase distance significantly so they won't be in top 4
+                        const factor = armLegBones.has(name) ? 1e6 : 1e3;
+                        minBoneDistances.set(idx, d2 * factor);
+                    }
+                }
             }
-        });
-        // --- End of Symmetry Enforcement ---
+        }
 
-
+        const uniqueBoneDistances = Array.from(minBoneDistances.entries()).map(([index, distanceSq]) => ({
+            index,
+            distance: Math.sqrt(distanceSq)
+        }));
         uniqueBoneDistances.sort((a, b) => a.distance - b.distance);
 
         const closestBones = uniqueBoneDistances.slice(0, 4);
         let totalWeight = 0;
-        
         const weights = closestBones.map(b => {
-            // Using a power of 4 for faster falloff, which can help reduce unwanted influence from distant bones.
             const weight = 1.0 / (Math.pow(b.distance, 4) + 1e-8);
             totalWeight += weight;
             return { weight, index: b.index };
         });
 
-        // Normalize weights
+        // Normalize
         const finalWeights = [];
         for(let j = 0; j < 4; j++) {
             if(weights[j]) {
@@ -211,7 +212,6 @@ export async function rigCharacter(model, markers, modelInverseMatrix, onProgres
         skinIndex.setXYZW(i, finalWeights[0].index, finalWeights[1].index, finalWeights[2].index, finalWeights[3].index);
         skinWeight.setXYZW(i, finalWeights[0].weight, finalWeights[1].weight, finalWeights[2].weight, finalWeights[3].weight);
     }
-    // --- End of new skinning logic ---
 
     geometry.setAttribute('skinIndex', skinIndex);
     geometry.setAttribute('skinWeight', skinWeight);
@@ -224,9 +224,12 @@ export async function rigCharacter(model, markers, modelInverseMatrix, onProgres
     }
 
     const skinnedMesh = new THREE.SkinnedMesh(geometry, material);
-    
-    // Add the root bone to the skinned mesh
-    skinnedMesh.add(boneMap.get('hips')); 
+    if (boneMap.has('hips')) {
+        skinnedMesh.add(boneMap.get('hips'));
+    } else {
+        // Fallback: add first bone as root if hips missing (shouldn't happen with required markers)
+        skinnedMesh.add(bones[0]);
+    }
     skinnedMesh.bind(skeleton);
     
     // The skinned mesh is created at the origin, which matches the model's centered position.
@@ -239,7 +242,7 @@ export async function rigCharacter(model, markers, modelInverseMatrix, onProgres
     riggedModel.add(skinnedMesh);
     
     // Add a simple test animation
-    const animations = createTestAnimations(skeleton, boneMap.get('hips').position, markerPositions);
+    const animations = createTestAnimations(skeleton, boneMap.get('hips')?.position || new THREE.Vector3(), markerPositions);
 
     return { riggedModel: riggedModel, animations };
 }
@@ -247,17 +250,19 @@ export async function rigCharacter(model, markers, modelInverseMatrix, onProgres
 function createTestAnimations(skeleton, hipPos, markerPositions) {
     const animations = {};
     
-    // Get all bones we might need for animations
+    // Bones for animations
     const hips = skeleton.getBoneByName('hips');
     const spine = skeleton.getBoneByName('spine');
     const shoulderL = skeleton.getBoneByName('left_shoulder');
     const shoulderR = skeleton.getBoneByName('right_shoulder');
+    const elbowL = skeleton.getBoneByName('left_elbow');
     const elbowR = skeleton.getBoneByName('right_elbow');
     const kneeL = skeleton.getBoneByName('left_knee');
     const kneeR = skeleton.getBoneByName('right_knee');
+    // Ensure clavicles don't unintentionally rotate with our tracks (we don't animate them here)
+    // Head/neck are also not affected directly by arm animations.
 
-
-    // Wave animation for right arm
+    // Wave animation for right arm (unchanged in behavior, but head won't stretch due to new weights)
     if (shoulderR && elbowR) {
         const times = [0, 0.5, 1, 1.5, 2];
         
@@ -287,37 +292,59 @@ function createTestAnimations(skeleton, hipPos, markerPositions) {
         animations.wave = waveClip;
     }
 
-    // New Idle Animation
+    // Utility: Compute a quaternion that rotates shoulder's current rest direction (to its elbow)
+    // downwards along -Y (arms at the body's side). This adapts to any incoming T-pose orientation.
+    const makeArmDownQuaternion = (shoulderName, elbowName) => {
+        const s = markerPositions.get(shoulderName);
+        const e = markerPositions.get(elbowName);
+        if (!s || !e) return new THREE.Quaternion(); // identity fallback
+
+        const currentDir = e.clone().sub(s).normalize();   // Shoulder -> Elbow direction in rest pose
+        const downDir = new THREE.Vector3(0, -1, 0);       // Desired arm direction
+        // Rotate from currentDir to downDir
+        const q = new THREE.Quaternion().setFromUnitVectors(currentDir, downDir);
+        return q;
+    };
+
+    // New Idle Animation: start from T-pose and lower arms to the body's side, add subtle sway and light knee bends.
     if (hips && spine && shoulderL && shoulderR && kneeL && kneeR) {
         const idleTimes = [0, 1, 2, 3, 4];
         const interpolation = THREE.InterpolateSmooth;
         const tracks = [];
 
-        // --- Arm position: lower from T-pose to a resting pose ---
-        const armRestEulerL = new THREE.Euler(0, 0, -Math.PI / 2.5); // Lower left arm
-        const armRestEulerR = new THREE.Euler(0, 0, Math.PI / 2.5); // Lower right arm
+        // Compute base "arms down" orientation from T-pose using marker directions
+        const qDownL = makeArmDownQuaternion('left_shoulder', 'left_elbow');
+        const qDownR = makeArmDownQuaternion('right_shoulder', 'right_elbow');
 
-        // Add a very subtle arm swing
-        const armSwayAngle = Math.PI / 36; // 5 degrees
-        
-        const qL_Base = new THREE.Quaternion().setFromEuler(armRestEulerL);
-        const qL_Fwd = new THREE.Quaternion().setFromEuler(new THREE.Euler(armSwayAngle, 0, armRestEulerL.z));
-        const qL_Back = new THREE.Quaternion().setFromEuler(new THREE.Euler(-armSwayAngle, 0, armRestEulerL.z));
-        
-        const qR_Base = new THREE.Quaternion().setFromEuler(armRestEulerR);
-        const qR_Fwd = new THREE.Quaternion().setFromEuler(new THREE.Euler(armSwayAngle, 0, armRestEulerR.z));
-        const qR_Back = new THREE.Quaternion().setFromEuler(new THREE.Euler(-armSwayAngle, 0, armRestEulerR.z));
+        // Subtle arm sway around Z while keeping them down
+        const armSwayAngle = Math.PI / 36; // ~5 degrees
+        const qSwayL_Pos = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, +armSwayAngle));
+        const qSwayL_Neg = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, -armSwayAngle));
+        const qSwayR_Pos = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, +armSwayAngle));
+        const qSwayR_Neg = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, -armSwayAngle));
+
+        // Compose: sway * down to keep sway relative to the "arms-down" base orientation
+        const qL0 = qDownL.clone();
+        const qL1 = qSwayL_Pos.clone().multiply(qDownL);
+        const qL2 = qDownL.clone();
+        const qL3 = qSwayL_Neg.clone().multiply(qDownL);
+        const qL4 = qDownL.clone();
 
         tracks.push(new THREE.QuaternionKeyframeTrack(`${shoulderL.name}.quaternion`, idleTimes, [
-            ...qL_Base.toArray(), ...qL_Fwd.toArray(), ...qL_Base.toArray(), ...qL_Back.toArray(), ...qL_Base.toArray()
+            ...qL0.toArray(), ...qL1.toArray(), ...qL2.toArray(), ...qL3.toArray(), ...qL4.toArray()
         ], interpolation));
-        
+
+        const qR0 = qDownR.clone();
+        const qR1 = qSwayR_Neg.clone().multiply(qDownR);
+        const qR2 = qDownR.clone();
+        const qR3 = qSwayR_Pos.clone().multiply(qDownR);
+        const qR4 = qDownR.clone();
+
         tracks.push(new THREE.QuaternionKeyframeTrack(`${shoulderR.name}.quaternion`, idleTimes, [
-            ...qR_Base.toArray(), ...qR_Back.toArray(), ...qR_Base.toArray(), ...qR_Fwd.toArray(), ...qR_Base.toArray()
+            ...qR0.toArray(), ...qR1.toArray(), ...qR2.toArray(), ...qR3.toArray(), ...qR4.toArray()
         ], interpolation));
 
-
-        // --- Body Sway: Hips and Spine ---
+        // Body sway: hips translate slightly left-right, spine counter-rotates to keep upper stable
         const swayAmount = 0.01; // meters
         const initialHipPos = hipPos.clone();
         tracks.push(new THREE.VectorKeyframeTrack(`${hips.name}.position`, idleTimes, [
@@ -328,8 +355,7 @@ function createTestAnimations(skeleton, hipPos, markerPositions) {
             initialHipPos.x, initialHipPos.y, initialHipPos.z,
         ], interpolation));
 
-        // Counter-rotate spine to keep head level
-        const spineSwayAngle = -swayAmount / 0.2; // Heuristic for counter-rotation
+        const spineSwayAngle = -swayAmount / 0.2;
         const qSpine_Base = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, 0));
         const qSpine_L = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, spineSwayAngle));
         const qSpine_R = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, -spineSwayAngle));
@@ -337,13 +363,10 @@ function createTestAnimations(skeleton, hipPos, markerPositions) {
             ...qSpine_Base.toArray(), ...qSpine_L.toArray(), ...qSpine_Base.toArray(), ...qSpine_R.toArray(), ...qSpine_Base.toArray()
         ], interpolation));
 
-
-        // --- Leg Bending ---
-        const kneeBendAngle = Math.PI / 30; // 6 degrees
+        // Light knee bends alternating
+        const kneeBendAngle = Math.PI / 30; // ~6 degrees
         const qKnee_Base = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, 0));
         const qKnee_Bent = new THREE.Quaternion().setFromEuler(new THREE.Euler(kneeBendAngle, 0, 0));
-        
-        // Bend one knee as weight shifts to the other leg
         tracks.push(new THREE.QuaternionKeyframeTrack(`${kneeR.name}.quaternion`, idleTimes, [
             ...qKnee_Base.toArray(), ...qKnee_Bent.toArray(), ...qKnee_Base.toArray(), ...qKnee_Base.toArray(), ...qKnee_Base.toArray()
         ], interpolation));
@@ -351,6 +374,19 @@ function createTestAnimations(skeleton, hipPos, markerPositions) {
             ...qKnee_Base.toArray(), ...qKnee_Base.toArray(), ...qKnee_Base.toArray(), ...qKnee_Bent.toArray(), ...qKnee_Base.toArray()
         ], interpolation));
 
+        // Slight elbow bend so arms look natural at sides
+        if (elbowL) {
+            const qElbowL_Base = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, Math.PI / 16, 0)); // small bend
+            tracks.push(new THREE.QuaternionKeyframeTrack(`${elbowL.name}.quaternion`, idleTimes, [
+                ...qElbowL_Base.toArray(), ...qElbowL_Base.toArray(), ...qElbowL_Base.toArray(), ...qElbowL_Base.toArray(), ...qElbowL_Base.toArray()
+            ], interpolation));
+        }
+        if (elbowR) {
+            const qElbowR_Base = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, -Math.PI / 16, 0)); // small bend
+            tracks.push(new THREE.QuaternionKeyframeTrack(`${elbowR.name}.quaternion`, idleTimes, [
+                ...qElbowR_Base.toArray(), ...qElbowR_Base.toArray(), ...qElbowR_Base.toArray(), ...qElbowR_Base.toArray(), ...qElbowR_Base.toArray()
+            ], interpolation));
+        }
 
         const idleClip = new THREE.AnimationClip('idle', -1, tracks);
         animations.idle = idleClip;

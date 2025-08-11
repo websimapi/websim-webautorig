@@ -4,24 +4,25 @@ import { rigCharacter } from './rigging.js';
 import { GLTFExporter } from 'three/addons/exporters/GLTFExporter.js';
 
 const MARKER_DEFINITIONS = [
-    { id: 'hips', name: 'Hips (Center)', color: 0x8800ff },
-    { id: 'spine', name: 'Spine (Mid)', color: 0x0000ff },
-    { id: 'neck', name: 'Neck Base', color: 0xff0000 },
-    { id: 'head', name: 'Head (Top)', color: 0xff0000 },
-    { id: 'left_hip', name: 'Left Hip', color: 0xff00ff },
-    { id: 'right_hip', name: 'Right Hip', color: 0xff00ff },
-    { id: 'left_knee', name: 'Left Knee', color: 0xff0088 },
-    { id: 'right_knee', name: 'Right Knee', color: 0xff0088 },
-    { id: 'left_ankle', name: 'Left Ankle', color: 0xff8888 },
-    { id: 'right_ankle', name: 'Right Ankle', color: 0xff8888 },
-    { id: 'left_clavicle', name: 'Left Clavicle', color: 0xff8800 },
-    { id: 'right_clavicle', name: 'Right Clavicle', color: 0xff8800 },
-    { id: 'left_shoulder', name: 'Left Shoulder', color: 0xffff00 },
-    { id: 'right_shoulder', name: 'Right Shoulder', color: 0xffff00 },
-    { id: 'left_elbow', name: 'Left Elbow', color: 0x00ff00 },
-    { id: 'right_elbow', name: 'Right Elbow', color: 0x00ff00 },
-    { id: 'left_wrist', name: 'Left Wrist', color: 0x00ffff },
-    { id: 'right_wrist', name: 'Right Wrist', color: 0x00ffff },
+    { id: 'hips', name: 'Hips (Center)', color: 0x8800ff, required: true },
+    { id: 'spine', name: 'Spine (Mid)', color: 0x0000ff, required: true },
+    { id: 'neck', name: 'Neck Base', color: 0xff0000, required: true },
+    { id: 'head_top', name: 'Head Top', color: 0xffffff, required: true },
+    { id: 'chin', name: 'Chin (Optional)', color: 0xcccccc, required: false },
+    { id: 'left_hip', name: 'Left Hip', color: 0xff00ff, required: true },
+    { id: 'right_hip', name: 'Right Hip', color: 0xff00ff, required: true },
+    { id: 'left_knee', name: 'Left Knee', color: 0xff0088, required: true },
+    { id: 'right_knee', name: 'Right Knee', color: 0xff0088, required: true },
+    { id: 'left_ankle', name: 'Left Ankle', color: 0xff8888, required: true },
+    { id: 'right_ankle', name: 'Right Ankle', color: 0xff8888, required: true },
+    { id: 'left_clavicle', name: 'Left Clavicle', color: 0xff8800, required: true },
+    { id: 'right_clavicle', name: 'Right Clavicle', color: 0xff8800, required: true },
+    { id: 'left_shoulder', name: 'Left Shoulder', color: 0xffff00, required: true },
+    { id: 'right_shoulder', name: 'Right Shoulder', color: 0xffff00, required: true },
+    { id: 'left_elbow', name: 'Left Elbow', color: 0x00ff00, required: true },
+    { id: 'right_elbow', name: 'Right Elbow', color: 0x00ff00, required: true },
+    { id: 'left_wrist', name: 'Left Wrist', color: 0x00ffff, required: true },
+    { id: 'right_wrist', name: 'Right Wrist', color: 0x00ffff, required: true },
 ];
 
 class App {
@@ -81,7 +82,8 @@ class App {
             const li = document.createElement('li');
             li.id = `marker-item-${markerDef.id}`;
             li.dataset.markerId = markerDef.id;
-            li.innerHTML = `<span class="status-indicator"></span> ${markerDef.name}`;
+            const optBadge = markerDef.required ? '' : ' <span style="opacity:.6;font-size:.85em">(Optional)</span>';
+            li.innerHTML = `<span class="status-indicator"></span> ${markerDef.name}${optBadge}`;
             li.addEventListener('click', () => this.setActiveMarker(markerDef.id));
             listEl.appendChild(li);
         });
@@ -119,13 +121,18 @@ class App {
         this.currentMarkers.set(markerId, position);
         document.getElementById(`marker-item-${markerId}`).classList.add('placed');
 
-        const allPlaced = MARKER_DEFINITIONS.every(def => this.currentMarkers.has(def.id));
+        const allPlaced = MARKER_DEFINITIONS
+            .filter(def => def.required)
+            .every(def => this.currentMarkers.has(def.id));
         document.getElementById('rig-btn').disabled = !allPlaced;
 
-        // Auto-select next unplaced marker
+        // Auto-select next unplaced required marker first, then optional
         const currentIndex = MARKER_DEFINITIONS.findIndex(def => def.id === markerId);
-        const nextMarker = MARKER_DEFINITIONS.slice(currentIndex + 1).find(def => !this.currentMarkers.has(def.id))
-            || MARKER_DEFINITIONS.slice(0, currentIndex).find(def => !this.currentMarkers.has(def.id));
+        const nextMarker =
+            MARKER_DEFINITIONS.slice(currentIndex + 1).find(def => def.required && !this.currentMarkers.has(def.id)) ||
+            MARKER_DEFINITIONS.slice(currentIndex + 1).find(def => !this.currentMarkers.has(def.id)) ||
+            MARKER_DEFINITIONS.slice(0, currentIndex).find(def => def.required && !this.currentMarkers.has(def.id)) ||
+            MARKER_DEFINITIONS.slice(0, currentIndex).find(def => !this.currentMarkers.has(def.id));
         
         if (nextMarker) {
             this.setActiveMarker(nextMarker.id);
