@@ -7,6 +7,7 @@ const MARKER_DEFINITIONS = [
     { id: 'hips', name: 'Hips (Center)', color: 0x8800ff },
     { id: 'spine', name: 'Spine (Mid)', color: 0x0000ff },
     { id: 'neck', name: 'Neck Base', color: 0xff0000 },
+    { id: 'head', name: 'Head (Top)', color: 0xff0000 },
     { id: 'left_hip', name: 'Left Hip', color: 0xff00ff },
     { id: 'right_hip', name: 'Right Hip', color: 0xff00ff },
     { id: 'left_knee', name: 'Left Knee', color: 0xff0088 },
