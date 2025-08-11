@@ -153,7 +153,6 @@ main {
     border-radius: 50%;
     background-color: var(--secondary-color);
     flex-shrink: 0;
-    box-shadow: 0 0 0 2px rgba(0,0,0,0.2) inset;
 }
 #marker-list li.placed .status-indicator {
     background-color: var(--success-color);

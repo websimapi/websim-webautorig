@@ -138,14 +138,15 @@ export class Viewer {
     }
 
     setupSkeletonHelper() {
-        let skinnedMesh = null;
+        let skinnedMesh;
         this.model.traverse(child => {
-            if (child.isSkinnedMesh) skinnedMesh = child;
+            if (child.isSkinnedMesh) {
+                skinnedMesh = child;
+            }
         });
 
         if (skinnedMesh && skinnedMesh.skeleton) {
-            // Attach helper to the skinned mesh so it follows the same transforms
-            this.skeletonHelper = new THREE.SkeletonHelper(skinnedMesh);
+            this.skeletonHelper = new THREE.SkeletonHelper(skinnedMesh.skeleton.bones[0]); // Pass root bone
             this.skeletonHelper.visible = false;
             this.scene.add(this.skeletonHelper);
         }
