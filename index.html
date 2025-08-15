@@ -83,6 +83,19 @@
                         <!-- Animation options will be added by JS -->
                     </select>
                 </div>
+                <div id="ai-anim-panel" class="panel-section">
+                    <h4>AI Animation</h4>
+                    <textarea id="ai-anim-prompt" placeholder="Describe the animation you want (e.g., 'A confident stride forward walk cycle')."></textarea>
+                    <div class="button-group">
+                        <button id="gen-ai-anim-btn" class="primary-btn">Generate</button>
+                        <button id="list-bones-btn">List Bones</button>
+                    </div>
+                    <div id="ai-anim-status" class="status-line"></div>
+                    <details id="saved-animations">
+                        <summary>Saved AI Animations</summary>
+                        <ul id="saved-anim-list"></ul>
+                    </details>
+                </div>
                 <div class="button-group">
                     <button id="start-over-btn">Start Over</button>
                     <button id="export-btn" class="primary-btn" disabled>Export GLB</button>
