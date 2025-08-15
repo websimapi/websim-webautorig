@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { Viewer } from './viewer.js';
 import { rigCharacter } from './rigging.js';
 import { GLTFExporter } from 'three/addons/exporters/GLTFExporter.js';
+import { aiGenerateAnimationJSON, repairAnimationJSON } from './ai.js';
 
 const MARKER_DEFINITIONS = [
     { id: 'hips', name: 'Hips (Center)', color: 0x8800ff },
@@ -287,33 +288,10 @@ class App {
         statusEl.textContent = 'Generating with AI...';
         try {
             const bones = this.getBoneNames();
-            const schema = `Respond directly with JSON and no other text.
-{
-  name: string; // short snake_case
-  duration: number; // seconds
-  fps: number; // 12..60 typical
-  tracks: Array<{
-    bone: string; // one of: ${bones.join(', ')}
-    property: "quaternion" | "position";
-    times: number[]; // ascending seconds, start at 0, end <= duration
-    values: number[]; // length = times.length * (property=="quaternion"?4:3)
-    interpolation?: "Step" | "Linear" | "Smooth";
-  }>;
-}`;
-            const completion = await websim.chat.completions.create({
-                messages: [
-                    { role: "system", content: `You are an expert 3D animator. Create plausible humanoid keyframes aligned to a forward +Z world where the character faces +Z. ${schema}` },
-                    { role: "user", content: [
-                        { type: "text", text: `Humanoid bone set: ${bones.join(', ')}` },
-                        { type: "text", text: `Goal: ${prompt}` }
-                    ] }
-                ],
-                json: true,
-            });
-            const data = JSON.parse(completion.content);
-            this.verifyAndSaveAnimationJSON(data);
-            const skeletonRoot = this.getSkeletonRoot();
-            const clip = this.buildClipFromJSON(data, skeletonRoot);
+            const data = await aiGenerateAnimationJSON(prompt, bones);
+            const repaired = repairAnimationJSON(data, bones);
+            this.verifyAndSaveAnimationJSON(repaired);
+            const clip = this.buildClipFromJSON(repaired, this.getSkeletonRoot());
             if (!clip) throw new Error('Failed to build clip.');
             this.animations[clip.name] = clip;
             this.refreshAnimationDropdown(clip.name);
