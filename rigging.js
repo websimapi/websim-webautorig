@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { BONE_HIERARCHY, BONE_NAMES, distanceToSegmentSq } from './rig-constants.js';
-import { createTestAnimations } from './rig-animations.js';
+import { createTestAnimations } from './animations/index.js';
 
 export async function rigCharacter(model, markers, modelInverseMatrix, onProgress) {
     onProgress(0.1, "Creating skeleton...");
