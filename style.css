@@ -104,16 +104,6 @@ main {
     margin: 0.5rem 0 0;
 }
 
-#ai-anim-panel textarea {
-    width: 100%;
-    min-height: 90px;
-    resize: vertical;
-    background: var(--secondary-color);
-    color: var(--text-color);
-    border: 1px solid var(--border-color);
-    border-radius: 4px;
-    padding: 0.5rem;
-}
 
 /* Editor View */
 #editor-view {
@@ -213,17 +203,6 @@ button.primary-btn:hover:not(:disabled) {
     width: 100%;
 }
 
-#saved-animations ul {
-    list-style: none;
-    padding-left: 0;
-    margin: 0.5rem 0 0;
-}
-
-.status-line {
-    font-size: 0.85em;
-    opacity: 0.8;
-    min-height: 1.2em;
-}
 
 /* Preview View */
 #preview-view {

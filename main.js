@@ -2,7 +2,6 @@ import * as THREE from 'three';
 import { Viewer } from './viewer.js';
 import { rigCharacter } from './rigging.js';
 import { GLTFExporter } from 'three/addons/exporters/GLTFExporter.js';
-import { aiGenerateAnimation } from './ai_advanced.js';
 
 const MARKER_DEFINITIONS = [
     { id: 'hips', name: 'Hips (Center)', color: 0x8800ff },
@@ -33,7 +32,6 @@ class App {
         this.activeMarkerId = null;
         this.riggedModel = null;
         this.animations = {};
-        this.customAnimationsJSON = [];
 
         this.initViews();
         this.initEventListeners();
@@ -56,11 +54,6 @@ class App {
         document.getElementById('export-btn').addEventListener('click', this.exportRiggedModel.bind(this));
         document.getElementById('skeleton-toggle').addEventListener('change', (e) => this.previewViewer?.toggleSkeleton(e.target.checked));
         document.getElementById('animation-select').addEventListener('change', (e) => this.previewViewer?.playAnimation(e.target.value));
-        
-        const genBtn = document.getElementById('gen-ai-anim-btn');
-        const bonesBtn = document.getElementById('list-bones-btn');
-        genBtn?.addEventListener('click', () => this.generateAIAnimation());
-        bonesBtn?.addEventListener('click', () => this.showBoneNames());
 
         const uploadBox = document.querySelector('.upload-box');
         uploadBox.addEventListener('dragover', (e) => {
@@ -186,7 +179,6 @@ class App {
         this.previewViewer.setModel(this.riggedModel, this.animations);
         this.previewViewer.resetControls();
 
-        this.loadSavedAIAnimations(); // load from localStorage into this.animations
         // Populate animation dropdown
         const animSelect = document.getElementById('animation-select');
         const animControls = document.getElementById('animation-controls');
@@ -204,7 +196,6 @@ class App {
         } else {
             animControls.style.display = 'none';
         }
-        this.refreshSavedAnimList();
     }
 
     async exportRiggedModel() {
@@ -261,158 +252,6 @@ class App {
     switchView(viewName) {
         Object.values(this.views).forEach(v => v.classList.remove('active'));
         this.views[viewName].classList.add('active');
-    }
-
-    loadSavedAIAnimations() {
-        try {
-            const raw = localStorage.getItem('webAutoRig.customAnimations');
-            if (!raw) return;
-            this.customAnimationsJSON = JSON.parse(raw);
-            const skeletonRoot = this.getSkeletonRoot();
-            if (!skeletonRoot) return;
-            const clips = this.customAnimationsJSON
-                .map(j => this.buildClipFromJSON(j, skeletonRoot))
-                .filter(c => c);
-            for (const clip of clips) this.animations[clip.name] = clip;
-        } catch (e) {
-            console.warn('Failed to load saved AI animations', e);
-        }
-    }
-
-    async generateAIAnimation() {
-        const promptEl = document.getElementById('ai-anim-prompt');
-        const statusEl = document.getElementById('ai-anim-status');
-        const prompt = (promptEl?.value || '').trim();
-        if (!prompt) { statusEl.textContent = 'Please enter a description.'; return; }
-        if (!this.riggedModel) { statusEl.textContent = 'Rig not ready.'; return; }
-        statusEl.textContent = 'Generating with AI...';
-        try {
-            const bones = this.getBoneNames();
-            const data = await aiGenerateAnimation(prompt, bones);
-            this.verifyAndSaveAnimationJSON(data);
-            const clip = this.buildClipFromJSON(data, this.getSkeletonRoot());
-            if (!clip) throw new Error('Failed to build clip.');
-            this.animations[clip.name] = clip;
-            this.refreshAnimationDropdown(clip.name);
-            this.refreshSavedAnimList();
-            statusEl.textContent = `Added animation "${clip.name}".`;
-        } catch (err) {
-            console.error(err);
-            statusEl.textContent = 'AI generation failed. Check console.';
-        }
-    }
-
-    verifyAndSaveAnimationJSON(data) {
-        if (!data || typeof data !== 'object') throw new Error('Invalid JSON.');
-        if (!data.name || !data.duration || !data.tracks) throw new Error('Missing fields.');
-        if (!Array.isArray(data.tracks) || data.tracks.length === 0) throw new Error('No tracks.');
-        const bones = new Set(this.getBoneNames());
-        const dur = Number(data.duration);
-        if (!(dur > 0 && dur < 120)) throw new Error('Duration out of range.');
-        data.fps = Math.min(60, Math.max(12, Number(data.fps || 24)));
-        for (const t of data.tracks) {
-            if (!bones.has(t.bone)) throw new Error(`Unknown bone: ${t.bone}`);
-            if (!['quaternion','position'].includes(t.property)) throw new Error('Bad property.');
-            if (!Array.isArray(t.times) || t.times.length < 2) throw new Error('Times invalid.');
-            if (!Array.isArray(t.values)) throw new Error('Values invalid.');
-            const stride = t.property === 'quaternion' ? 4 : 3;
-            if (t.values.length !== t.times.length * stride) throw new Error('Values length mismatch.');
-            let prev = -Infinity;
-            for (const tm of t.times) {
-                if (!(tm >= 0 && tm <= dur)) throw new Error('Time out of bounds.');
-                if (tm <= prev) throw new Error('Times must be ascending.');
-                prev = tm;
-            }
-        }
-        // Save/replace by name
-        const raw = localStorage.getItem('webAutoRig.customAnimations');
-        this.customAnimationsJSON = raw ? JSON.parse(raw) : [];
-        const idx = this.customAnimationsJSON.findIndex(a => a.name === data.name);
-        if (idx >= 0) this.customAnimationsJSON[idx] = data; else this.customAnimationsJSON.push(data);
-        localStorage.setItem('webAutoRig.customAnimations', JSON.stringify(this.customAnimationsJSON));
-    }
-
-    buildClipFromJSON(data, skeletonRoot) {
-        try {
-            const tracks = [];
-            for (const t of data.tracks) {
-                const path = `${t.bone}.${t.property}`;
-                const interp = t.interpolation === 'Step' ? THREE.InterpolateDiscrete :
-                               t.interpolation === 'Linear' ? THREE.InterpolateLinear :
-                               THREE.InterpolateSmooth;
-                if (t.property === 'position') {
-                    tracks.push(new THREE.VectorKeyframeTrack(path, t.times, t.values, interp));
-                } else {
-                    // normalize quaternions
-                    const vals = t.values.slice();
-                    for (let i = 0; i < vals.length; i += 4) {
-                        const q = new THREE.Quaternion(vals[i], vals[i+1], vals[i+2], vals[i+3]).normalize();
-                        vals[i]=q.x; vals[i+1]=q.y; vals[i+2]=q.z; vals[i+3]=q.w;
-                    }
-                    tracks.push(new THREE.QuaternionKeyframeTrack(path, t.times, vals, interp));
-                }
-            }
-            const clip = new THREE.AnimationClip(data.name, data.duration, tracks);
-            return clip;
-        } catch (e) {
-            console.warn('Failed to build clip', e);
-            return null;
-        }
-    }
-
-    refreshAnimationDropdown(selectName) {
-        const animSelect = document.getElementById('animation-select');
-        const animControls = document.getElementById('animation-controls');
-        if (!animSelect) return;
-        const current = animSelect.value;
-        animSelect.innerHTML = '<option value="none">None (T-Pose)</option>';
-        const names = Object.keys(this.animations);
-        if (names.length) {
-            animControls.style.display = 'block';
-            for (const n of names) {
-                const opt = document.createElement('option');
-                opt.value = n; opt.textContent = n.replace(/_/g,' ');
-                animSelect.appendChild(opt);
-            }
-        }
-        animSelect.value = selectName || current || 'none';
-        this.previewViewer?.playAnimation(animSelect.value);
-    }
-
-    refreshSavedAnimList() {
-        const ul = document.getElementById('saved-anim-list');
-        if (!ul) return;
-        ul.innerHTML = '';
-        for (const a of this.customAnimationsJSON) {
-            const li = document.createElement('li');
-            const btn = document.createElement('button');
-            btn.textContent = `Load "${a.name}"`;
-            btn.addEventListener('click', () => {
-                const clip = this.buildClipFromJSON(a, this.getSkeletonRoot());
-                if (clip) {
-                    this.animations[clip.name] = clip;
-                    this.refreshAnimationDropdown(clip.name);
-                }
-            });
-            li.appendChild(btn);
-            ul.appendChild(li);
-        }
-    }
-
-    getSkeletonRoot() {
-        let root = null;
-        this.riggedModel?.traverse(o => { if (o.isBone && !root) root = o; });
-        return root;
-    }
-    getBoneNames() {
-        const names = [];
-        this.riggedModel?.traverse(o => { if (o.isBone) names.push(o.name); });
-        return names.sort();
-    }
-    showBoneNames() {
-        const bones = this.getBoneNames();
-        const statusEl = document.getElementById('ai-anim-status');
-        statusEl.textContent = bones.length ? `Bones: ${bones.join(', ')}` : 'No bones detected.';
     }
 }
 
