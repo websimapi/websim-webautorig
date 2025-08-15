@@ -100,7 +100,6 @@ export function createAnimations(skeleton, hipPos, markerPositions) {
             const knees = new THREE.QuaternionKeyframeTrack(`${kneeL.name}.quaternion`, idleTimes, [
                 ...qBase.toArray(), ...qBase.toArray(), ...qBase.toArray(), ...qBent.toArray(), ...qBase.toArray()
             ], THREE.InterpolateSmooth);
-            animations._idle_kneeL = knees; // not exported directly but helps blend if needed
             tracks.push(knees);
         }
         if (kneeR) {
@@ -110,7 +109,6 @@ export function createAnimations(skeleton, hipPos, markerPositions) {
             const knees = new THREE.QuaternionKeyframeTrack(`${kneeR.name}.quaternion`, idleTimes, [
                 ...qBent.toArray(), ...qBase.toArray(), ...qBase.toArray(), ...qBase.toArray(), ...qBase.toArray()
             ], THREE.InterpolateSmooth);
-            animations._idle_kneeR = knees;
             tracks.push(knees);
         }
         if (elbowL) {
