@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { Viewer } from './viewer.js';
 import { rigCharacter } from './rigging.js';
 import { GLTFExporter } from 'three/addons/exporters/GLTFExporter.js';
-import { aiGenerateAnimationJSON, repairAnimationJSON } from './ai.js';
+import { aiGenerateAnimation } from './ai_advanced.js';
 
 const MARKER_DEFINITIONS = [
     { id: 'hips', name: 'Hips (Center)', color: 0x8800ff },
@@ -288,10 +288,9 @@ class App {
         statusEl.textContent = 'Generating with AI...';
         try {
             const bones = this.getBoneNames();
-            const data = await aiGenerateAnimationJSON(prompt, bones);
-            const repaired = repairAnimationJSON(data, bones);
-            this.verifyAndSaveAnimationJSON(repaired);
-            const clip = this.buildClipFromJSON(repaired, this.getSkeletonRoot());
+            const data = await aiGenerateAnimation(prompt, bones);
+            this.verifyAndSaveAnimationJSON(data);
+            const clip = this.buildClipFromJSON(data, this.getSkeletonRoot());
             if (!clip) throw new Error('Failed to build clip.');
             this.animations[clip.name] = clip;
             this.refreshAnimationDropdown(clip.name);
