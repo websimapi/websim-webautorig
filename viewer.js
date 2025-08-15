@@ -176,7 +176,6 @@ export class Viewer {
         }
 
         const clip = this.animations[name];
-        if (!(clip instanceof THREE.AnimationClip)) return; // safety: only play valid clips
         const action = this.mixer.clipAction(clip);
         action.reset().fadeIn(0.5).play();
         this.activeAction = action;
