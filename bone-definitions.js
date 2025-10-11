@@ -1,4 +1,6 @@
-import * as THREE from 'three';
+/** 
+ * Bone hierarchy and naming definitions for the auto-rigging system
+ */
 
 export const BONE_HIERARCHY = {
     'hips': { children: ['spine', 'left_hip', 'right_hip'] },
@@ -22,13 +24,3 @@ export const BONE_HIERARCHY = {
 };
 
 export const BONE_NAMES = Object.keys(BONE_HIERARCHY);
-
-// Helper function: squared distance from a point to a segment (local space)
-export function distanceToSegmentSq(point, segStart, segEnd) {
-    const l2 = segStart.distanceToSquared(segEnd);
-    if (l2 === 0) return point.distanceToSquared(segStart);
-    let t = ((point.x - segStart.x) * (segEnd.x - segStart.x) + (point.y - segStart.y) * (segEnd.y - segStart.y) + (point.z - segStart.z) * (segEnd.z - segStart.z)) / l2;
-    t = Math.max(0, Math.min(1, t));
-    const closestPointOnSegment = segStart.clone().lerp(segEnd, t);
-    return point.distanceToSquared(closestPointOnSegment);
-}
