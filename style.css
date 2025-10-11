@@ -461,17 +461,12 @@ button.primary-btn:hover:not(:disabled) {
     
     .icon-btn {
         flex-shrink: 0;
-        width: 50px;
-        height: 50px;
+        width: 48px;
+        height: 48px;
         font-size: 0; /* Hide text */
         background-size: 60%;
         background-position: center;
         background-repeat: no-repeat;
-    }
-
-    .icon-btn.active {
-        border-color: var(--primary-color);
-        background-color: rgba(0, 170, 255, 0.2);
     }
 
     /* Preview View on Mobile */

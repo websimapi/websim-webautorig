@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { Viewer } from './viewer.js';
 import { rigCharacter } from './rigging.js';
+import { detectPoseAndPlaceMarkers } from './pose_detection.js';
 import { GLTFExporter } from 'three/addons/exporters/GLTFExporter.js';
 
 const MARKER_DEFINITIONS = [
@@ -53,10 +54,12 @@ class App {
         // Desktop buttons
         document.getElementById('rig-btn').addEventListener('click', this.handleRigging.bind(this));
         document.getElementById('reset-view-btn').addEventListener('click', () => this.editorViewer?.resetControls());
+        document.getElementById('auto-detect-btn').addEventListener('click', this.handleAutoDetect.bind(this));
         
         // Mobile buttons
         document.getElementById('mobile-rig-btn').addEventListener('click', this.handleRigging.bind(this));
         document.getElementById('mobile-reset-view-btn').addEventListener('click', () => this.editorViewer?.resetControls());
+        document.getElementById('mobile-auto-detect-btn').addEventListener('click', this.handleAutoDetect.bind(this));
 
         document.getElementById('start-over-btn').addEventListener('click', this.resetApp.bind(this));
         document.getElementById('export-btn').addEventListener('click', this.exportRiggedModel.bind(this));
@@ -98,6 +101,7 @@ class App {
         iconsContainer.innerHTML = '';
         
         // Setup mobile action button icons
+        document.getElementById('mobile-auto-detect-btn').style.backgroundImage = `url(./icon_auto_detect.png)`;
         document.getElementById('mobile-reset-view-btn').style.backgroundImage = `url(./icon_reset_view.png)`;
         document.getElementById('mobile-rig-btn').style.backgroundImage = `url(./icon_generate_rig.png)`;
 
@@ -177,6 +181,50 @@ class App {
         
         await this.editorViewer.loadModel(objectURL);
         this.editorViewer.resetControls();
+    }
+
+    async handleAutoDetect() {
+        if (!this.editorViewer) return;
+        
+        const progressContainer = document.querySelector('.progress-container');
+        const progressLabel = document.getElementById('progress-label');
+        const progressBar = document.getElementById('progress-bar');
+        const autoDetectBtn = document.getElementById('auto-detect-btn');
+        const mobileAutoDetectBtn = document.getElementById('mobile-auto-detect-btn');
+
+        autoDetectBtn.disabled = true;
+        mobileAutoDetectBtn.disabled = true;
+        progressContainer.style.display = 'block';
+
+        const onProgress = (progress, label) => {
+            progressBar.value = progress * 100;
+            progressLabel.textContent = label;
+        };
+
+        try {
+            const markers = await detectPoseAndPlaceMarkers(this.editorViewer, onProgress);
+            
+            // Place all detected markers
+            for (const [markerId, position] of markers.entries()) {
+                this.editorViewer.placeMarker(markerId, position);
+                this.onMarkerPlaced(markerId, position);
+            }
+            
+            onProgress(1, "Done!");
+            
+            setTimeout(() => {
+                progressContainer.style.display = 'none';
+                autoDetectBtn.disabled = false;
+                mobileAutoDetectBtn.disabled = false;
+            }, 500);
+            
+        } catch (error) {
+            console.error('Auto-detect failed:', error);
+            alert(error.message || 'Pose detection failed. Please try manual placement or adjust the model view.');
+            progressContainer.style.display = 'none';
+            autoDetectBtn.disabled = false;
+            mobileAutoDetectBtn.disabled = false;
+        }
     }
 
     onMarkerPlaced(markerId, position) {
