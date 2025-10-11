@@ -1,31 +1,32 @@
-
-```
-animations/idle-animation.js
-```javascript
 import * as THREE from 'three';
+import { makeArmDownQuaternion } from './utils.js';
 
-export function createIdleAnimation(hips, spine, shoulderL, shoulderR, elbowL, elbowR, kneeL, kneeR, hipPos, markerPositions) {
+/**
+ * Creates an idle animation.
+ * @param {THREE.Skeleton} skeleton - The skeleton to animate.
+ * @param {THREE.Vector3} hipPos - The initial local position of the hip bone.
+ * @param {Map<string, THREE.Vector3>} markerPositions - A map of bone names to their local positions.
+ * @returns {THREE.AnimationClip|null}
+ */
+export function createIdleAnimation(skeleton, hipPos, markerPositions) {
+    const hips = skeleton.getBoneByName('hips');
+    const spine = skeleton.getBoneByName('spine');
+    const shoulderL = skeleton.getBoneByName('left_shoulder');
+    const shoulderR = skeleton.getBoneByName('right_shoulder');
+    const elbowL = skeleton.getBoneByName('left_elbow');
+    const elbowR = skeleton.getBoneByName('right_elbow');
+    const kneeL = skeleton.getBoneByName('left_knee');
+    const kneeR = skeleton.getBoneByName('right_knee');
+
+    if (!hips || !spine || !shoulderL || !shoulderR || !kneeL || !kneeR) return null;
+
     const idleTimes = [0, 1, 2, 3, 4];
     const interpolation = THREE.InterpolateSmooth;
     const tracks = [];
 
-    // Utility: Compute a quaternion that rotates shoulder's current rest direction (to its elbow)
-    // downwards along -Y (arms at the body's side). This adapts to any incoming T-pose orientation.
-    const makeArmDownQuaternion = (shoulderName, elbowName) => {
-        const s = markerPositions.get(shoulderName);
-        const e = markerPositions.get(elbowName);
-        if (!s || !e) return new THREE.Quaternion(); // identity fallback
-
-        const currentDir = e.clone().sub(s).normalize();   // Shoulder -> Elbow direction in rest pose
-        const downDir = new THREE.Vector3(0, -1, 0);       // Desired arm direction
-        // Rotate from currentDir to downDir
-        const q = new THREE.Quaternion().setFromUnitVectors(currentDir, downDir);
-        return q;
-    };
-
     // Compute base "arms down" orientation from T-pose using marker directions
-    const qDownL = makeArmDownQuaternion('left_shoulder', 'left_elbow');
-    const qDownR = makeArmDownQuaternion('right_shoulder', 'right_elbow');
+    const qDownL = makeArmDownQuaternion(markerPositions, 'left_shoulder', 'left_elbow');
+    const qDownR = makeArmDownQuaternion(markerPositions, 'right_shoulder', 'right_elbow');
 
     // Subtle arm sway around Z while keeping them down
     const armSwayAngle = Math.PI / 36; // ~5 degrees

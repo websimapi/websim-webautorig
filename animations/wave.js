@@ -1,8 +1,18 @@
 import * as THREE from 'three';
 
-export function createWaveAnimation(shoulderR, elbowR) {
-    const times = [0, 0.5, 1, 1.5, 2];
+/**
+ * Creates a wave animation.
+ * @param {THREE.Skeleton} skeleton - The skeleton to animate.
+ * @returns {THREE.AnimationClip|null}
+ */
+export function createWaveAnimation(skeleton) {
+    const shoulderR = skeleton.getBoneByName('right_shoulder');
+    const elbowR = skeleton.getBoneByName('right_elbow');
 
+    if (!shoulderR || !elbowR) return null;
+
+    const times = [0, 0.5, 1, 1.5, 2];
+    
     // Shoulder rotation (moves arm up and down from T-Pose)
     const shoulderZAngle = Math.PI / 4; // 45 degrees
     const shoulderValues = [
