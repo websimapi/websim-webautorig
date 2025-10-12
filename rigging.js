@@ -41,6 +41,60 @@ function distanceToSegmentSq(point, segStart, segEnd) {
     return point.distanceToSquared(closestPointOnSegment);
 }
 
+// Helper to calculate mesh thickness around a point.
+async function calculateBoneRadii(bones, markerPositions, mesh) {
+    const raycaster = new THREE.Raycaster();
+    // A set of directions to cast rays in, covering 3D space.
+    const directions = [
+        new THREE.Vector3(1, 0, 0), new THREE.Vector3(-1, 0, 0),
+        new THREE.Vector3(0, 1, 0), new THREE.Vector3(0, -1, 0),
+        new THREE.Vector3(0, 0, 1), new THREE.Vector3(0, 0, -1),
+        new THREE.Vector3(1, 1, 1).normalize(), new THREE.Vector3(-1, -1, -1).normalize(),
+        new THREE.Vector3(1, 1, -1).normalize(), new THREE.Vector3(-1, -1, 1).normalize(),
+        new THREE.Vector3(1, -1, 1).normalize(), new THREE.Vector3(-1, 1, -1).normalize(),
+        new THREE.Vector3(-1, 1, 1).normalize(), new THREE.Vector3(1, -1, -1).normalize(),
+    ];
+
+    const tempMatrix = new THREE.Matrix4();
+    const geometry = mesh.geometry;
+    const positionAttribute = geometry.attributes.position;
+    const indexAttribute = geometry.index;
+    const material = Array.isArray(mesh.material) ? mesh.material[0] : mesh.material;
+    
+    // Ensure material is double-sided for raycasting from inside.
+    const originalSide = material.side;
+    material.side = THREE.DoubleSide;
+
+    for (const bone of bones) {
+        const bonePos = markerPositions.get(bone.name);
+        if (!bonePos) continue;
+
+        let distances = [];
+        
+        for (const dir of directions) {
+            raycaster.set(bonePos, dir);
+            const intersects = raycaster.intersectObject(mesh, false);
+
+            if (intersects.length > 0) {
+                distances.push(intersects[0].distance);
+            }
+        }
+        
+        if (distances.length > 0) {
+            const avgDistance = distances.reduce((a, b) => a + b, 0) / distances.length;
+            // Make collider slightly smaller than mesh to allow for closer interaction.
+            bone.userData.meshRadius = avgDistance * 0.90; 
+        } else {
+            // Fallback if no intersections are found.
+            bone.userData.meshRadius = 0.05; 
+        }
+    }
+    
+    // Restore original material side
+    material.side = originalSide;
+}
+
+
 export async function rigCharacter(model, markers, modelInverseMatrix, onProgress) {
     onProgress(0.1, "Creating skeleton...");
     await new Promise(res => setTimeout(res, 200));
@@ -211,6 +265,10 @@ export async function rigCharacter(model, markers, modelInverseMatrix, onProgres
     skinnedMesh.bind(skeleton);
     
     // The skinned mesh is created at the origin, which matches the model's centered position.
+
+    onProgress(0.8, "Calculating collision volumes...");
+    await calculateBoneRadii(bones, markerPositions, targetMesh);
+
 
     onProgress(0.9, "Finalizing rig...");
     await new Promise(res => setTimeout(res, 200));
