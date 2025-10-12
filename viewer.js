@@ -1,7 +1,6 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { CollisionManager } from './collision.js';
 
 export class Viewer {
     constructor(canvas, markerDefs = []) {
@@ -24,7 +23,6 @@ export class Viewer {
         this.clock = new THREE.Clock();
         this.animations = {};
         this.activeAction = null;
-        this.collisionManager = null;
 
         this.animate = this.animate.bind(this);
         this.animate();
@@ -68,10 +66,6 @@ export class Viewer {
 
         if (this.mixer) {
             this.mixer.update(this.clock.getDelta());
-        }
-
-        if (this.collisionManager) {
-            this.collisionManager.update();
         }
         
         const { clientWidth, clientHeight } = this.renderer.domElement;
@@ -120,7 +114,6 @@ export class Viewer {
 
         if (Object.keys(this.animations).length > 0) {
             this.mixer = new THREE.AnimationMixer(this.model);
-            this.collisionManager = new CollisionManager(this.model);
         }
 
         this.setupSkeletonHelper();
@@ -140,7 +133,6 @@ export class Viewer {
             this.mixer.stopAllAction();
             this.mixer = null;
         }
-        this.collisionManager = null;
         this.animations = {};
         this.activeAction = null;
     }
@@ -163,6 +155,12 @@ export class Viewer {
     toggleSkeleton(visible) {
         if (this.skeletonHelper) {
             this.skeletonHelper.visible = visible;
+        }
+    }
+
+    toggleMesh(visible) {
+        if (this.model) {
+            this.model.visible = visible;
         }
     }
 
@@ -198,11 +196,51 @@ export class Viewer {
 
         this.raycaster.setFromCamera(this.pointer, this.camera);
 
-        const intersects = this.raycaster.intersectObject(this.model, true);
-        if (intersects.length > 0) {
-            const point = intersects[0].point;
-            this.placeMarker(this.activeMarkerId, point);
+        const centeredPoint = this.getIntersectionCenter(this.raycaster);
+        if (centeredPoint) {
+            this.placeMarker(this.activeMarkerId, centeredPoint);
+            // After placing, we can notify that the operation was successful.
+            // This is useful for pose detection which relies on this function.
+            this.onMarkerPlaced(this.activeMarkerId, centeredPoint.clone());
         }
+    }
+
+    getIntersectionCenter(raycaster) {
+        if (!this.model) return null;
+        
+        // Cast a ray from the camera and get the first intersection (the front face)
+        const intersects = raycaster.intersectObject(this.model, true);
+        if (intersects.length === 0) {
+            return null;
+        }
+
+        const pointFront = intersects[0].point;
+
+        // To find the corresponding point on the back face, we'll cast another ray
+        // from a point far behind the model, in the opposite direction of the original ray.
+        const ray = raycaster.ray;
+        
+        // Start from a point far away along the ray's direction.
+        const farPoint = ray.origin.clone().add(ray.direction.clone().multiplyScalar(100));
+        
+        // Create a new raycaster pointing back towards the origin.
+        const oppositeRaycaster = new THREE.Raycaster(farPoint, ray.direction.clone().negate());
+        
+        const backIntersects = oppositeRaycaster.intersectObject(this.model, true);
+
+        if (backIntersects.length === 0) {
+            // This case is unlikely if the first ray hit, but as a fallback,
+            // we return the front-most point. This can happen with single-sided geometry.
+            return pointFront;
+        }
+
+        // The first intersection from the opposite ray is our back point.
+        const pointBack = backIntersects[0].point;
+        
+        // The final marker position is the midpoint between the front and back intersections.
+        const centerPoint = pointFront.clone().lerp(pointBack, 0.5);
+        
+        return centerPoint;
     }
 
     placeMarker(markerId, position) {
@@ -221,6 +259,8 @@ export class Viewer {
             this.markers.add(markerMesh);
         }
 
+        // This call is now redundant if called in onPointerDown.
+        // It's kept here for direct calls to placeMarker (like from pose detection)
         this.onMarkerPlaced(markerId, position.clone());
     }
 

@@ -176,16 +176,10 @@ export async function detectPoseAndPlaceMarkers(viewer, onProgress) {
 
         // Try direct raycast first
         viewer.raycaster.setFromCamera(new THREE.Vector2(ndcX, ndcY), viewer.camera);
-        let intersects = viewer.raycaster.intersectObject(viewer.model, true);
-
-        if (intersects.length > 0) {
-            // Filter out intersects that are too far from model center (avoid hitting wrong parts)
-            const validIntersects = intersects.filter(hit => 
-                hit.point.distanceTo(modelCenter) < modelSize.length()
-            );
-            if (validIntersects.length > 0) {
-                return validIntersects[0].point.clone();
-            }
+        let centeredPoint = viewer.getIntersectionCenter(viewer.raycaster);
+        
+        if (centeredPoint) {
+            return centeredPoint;
         }
 
         // If direct raycast fails, try with slight offsets in a grid pattern
@@ -199,15 +193,10 @@ export async function detectPoseAndPlaceMarkers(viewer, onProgress) {
 
         for (const [ox, oy] of offsets) {
             viewer.raycaster.setFromCamera(new THREE.Vector2(ndcX + ox, ndcY + oy), viewer.camera);
-            intersects = viewer.raycaster.intersectObject(viewer.model, true);
-            
-            if (intersects.length > 0) {
-                const validIntersects = intersects.filter(hit => 
-                    hit.point.distanceTo(modelCenter) < modelSize.length()
-                );
-                if (validIntersects.length > 0) {
-                    return validIntersects[0].point.clone();
-                }
+            centeredPoint = viewer.getIntersectionCenter(viewer.raycaster);
+            if (centeredPoint) {
+                console.log(`Used offset for ${landmarkName}`);
+                return centeredPoint;
             }
         }
 
