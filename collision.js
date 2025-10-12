@@ -190,12 +190,16 @@ export class CollisionManager {
         // Apply the correction to the shoulder bone's quaternion.
         // We must do this in world space and then convert back to local.
         const parentInverse = new THREE.Matrix4();
-        shoulderBone.parent.getWorldMatrix(true, parentInverse).invert();
+        if (shoulderBone.parent) {
+            shoulderBone.parent.updateWorldMatrix(true, false); // Ensure matrix is up-to-date
+            parentInverse.copy(shoulderBone.parent.matrixWorld).invert();
+        }
 
         const worldQuaternion = shoulderBone.getWorldQuaternion(new THREE.Quaternion());
         worldQuaternion.premultiply(correctionQuaternion); // Apply correction
 
         const localQuaternion = shoulderBone.quaternion;
-        localQuaternion.copy(worldQuaternion).premultiply(parentInverse.getRotation(new THREE.Quaternion()).invert());
+        const parentInverseRotation = new THREE.Quaternion().setFromRotationMatrix(parentInverse);
+        localQuaternion.copy(worldQuaternion).premultiply(parentInverseRotation);
     }
 }
