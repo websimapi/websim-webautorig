@@ -27,6 +27,7 @@ const POSE_LANDMARK_MAP = {
 };
 
 let poseInstance = null;
+let faceMeshInstance = null;
 
 async function initializePose() {
     if (poseInstance) return poseInstance;
@@ -50,6 +51,69 @@ async function initializePose() {
     return pose;
 }
 
+async function initializeFaceMesh() {
+    if (faceMeshInstance) return faceMeshInstance;
+
+    const faceMesh = new FaceMesh({
+        locateFile: (file) => {
+            return `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`;
+        }
+    });
+
+    faceMesh.setOptions({
+        maxNumFaces: 1,
+        refineLandmarks: true,
+        minDetectionConfidence: 0.5,
+        minTrackingConfidence: 0.5
+    });
+
+    faceMeshInstance = faceMesh;
+    return faceMesh;
+}
+
+function findHeadTopFromRaycast(viewer, neckPosition) {
+    const modelBounds = new THREE.Box3().setFromObject(viewer.model);
+    const modelCenter = modelBounds.getCenter(new THREE.Vector3());
+    const modelSize = modelBounds.getSize(new THREE.Vector3());
+
+    // Start raycasting from above the model
+    const startHeight = modelBounds.max.y + modelSize.y * 0.5;
+    const rayOrigin = new THREE.Vector3();
+    const rayDirection = new THREE.Vector3(0, -1, 0); // Downward
+
+    let highestPoint = null;
+    let highestY = -Infinity;
+
+    // Grid pattern around the center-x position of the neck
+    const centerX = neckPosition ? neckPosition.x : modelCenter.x;
+    const centerZ = neckPosition ? neckPosition.z : modelCenter.z;
+    const gridSize = 0.05; // 5cm grid spacing
+    const gridRange = 3; // 3 steps in each direction
+
+    for (let xOffset = -gridRange; xOffset <= gridRange; xOffset++) {
+        for (let zOffset = -gridRange; zOffset <= gridRange; zOffset++) {
+            rayOrigin.set(
+                centerX + xOffset * gridSize,
+                startHeight,
+                centerZ + zOffset * gridSize
+            );
+
+            viewer.raycaster.set(rayOrigin, rayDirection);
+            const intersects = viewer.raycaster.intersectObject(viewer.model, true);
+
+            if (intersects.length > 0) {
+                const hitPoint = intersects[0].point;
+                if (hitPoint.y > highestY) {
+                    highestY = hitPoint.y;
+                    highestPoint = hitPoint.clone();
+                }
+            }
+        }
+    }
+
+    return highestPoint;
+}
+
 export async function detectPoseAndPlaceMarkers(viewer, onProgress) {
     onProgress(0.1, "Capturing scene...");
 
@@ -57,8 +121,9 @@ export async function detectPoseAndPlaceMarkers(viewer, onProgress) {
     viewer.renderer.render(viewer.scene, viewer.camera);
     const imageData = viewer.canvas.toDataURL('image/png');
 
-    onProgress(0.3, "Initializing pose detection...");
+    onProgress(0.25, "Initializing detection...");
     const pose = await initializePose();
+    const faceMesh = await initializeFaceMesh();
 
     // Convert data URL to image
     const img = new Image();
@@ -67,6 +132,19 @@ export async function detectPoseAndPlaceMarkers(viewer, onProgress) {
         img.onerror = reject;
         img.src = imageData;
     });
+
+    onProgress(0.4, "Detecting face...");
+
+    // Try face detection first
+    let faceResults = null;
+    try {
+        faceResults = await new Promise((resolve) => {
+            faceMesh.onResults(resolve);
+            faceMesh.send({ image: img });
+        });
+    } catch (e) {
+        console.warn("Face detection failed:", e);
+    }
 
     onProgress(0.5, "Detecting pose...");
 
@@ -159,21 +237,14 @@ export async function detectPoseAndPlaceMarkers(viewer, onProgress) {
         return fallbackPoint;
     };
 
-    // Direct mappings
+    // Direct mappings (skip head for now)
     for (const [markerId, landmarkIdx] of Object.entries(POSE_LANDMARK_MAP)) {
+        if (markerId === 'head') continue; // Handle head separately
         if (landmarkIdx !== null && landmarks[landmarkIdx]) {
             const lm = landmarks[landmarkIdx];
             const pos3D = screenTo3D(lm.x, lm.y, lm.z, markerId);
             markers.set(markerId, pos3D);
         }
-    }
-
-    // Calculate derived positions
-    // Head (use nose but offset upward)
-    if (landmarks[0]) {
-        const nose = landmarks[0];
-        const pos3D = screenTo3D(nose.x, nose.y - 0.08, nose.z, 'head'); // Offset up
-        markers.set('head', pos3D);
     }
 
     // Neck (midpoint between shoulders)
@@ -218,6 +289,44 @@ export async function detectPoseAndPlaceMarkers(viewer, onProgress) {
         const shoulder = markers.get('right_shoulder');
         const clavicle = new THREE.Vector3().lerpVectors(neck, shoulder, 0.3);
         markers.set('right_clavicle', clavicle);
+    }
+
+    // HEAD PLACEMENT - Use face detection or raycast from top
+    let headPosition = null;
+    
+    if (faceResults && faceResults.multiFaceLandmarks && faceResults.multiFaceLandmarks.length > 0) {
+        // Face detected - use face landmarks for precise head placement
+        const faceLandmarks = faceResults.multiFaceLandmarks[0];
+        
+        // Use the top center of the face (forehead area)
+        // Landmark 10 is approximately the top of the forehead in MediaPipe FaceMesh
+        const foreheadLandmark = faceLandmarks[10];
+        
+        if (foreheadLandmark) {
+            // Offset slightly upward from forehead to get head top
+            headPosition = screenTo3D(
+                foreheadLandmark.x, 
+                foreheadLandmark.y - 0.05, // Offset up to get top of head
+                foreheadLandmark.z,
+                'head'
+            );
+        }
+    }
+    
+    if (!headPosition) {
+        // No face found - use top-down raycast to find center-most top of head
+        const neckPosition = markers.get('neck');
+        headPosition = findHeadTopFromRaycast(viewer, neckPosition);
+        
+        if (!headPosition && landmarks[0]) {
+            // Final fallback - use nose with upward offset
+            const nose = landmarks[0];
+            headPosition = screenTo3D(nose.x, nose.y - 0.08, nose.z, 'head');
+        }
+    }
+    
+    if (headPosition) {
+        markers.set('head', headPosition);
     }
 
     onProgress(0.9, "Placing markers...");
