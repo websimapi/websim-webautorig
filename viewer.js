@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { CollisionManager } from './collision.js';
 
 export class Viewer {
     constructor(canvas, markerDefs = []) {
@@ -23,6 +24,7 @@ export class Viewer {
         this.clock = new THREE.Clock();
         this.animations = {};
         this.activeAction = null;
+        this.collisionManager = null;
 
         this.animate = this.animate.bind(this);
         this.animate();
@@ -66,6 +68,10 @@ export class Viewer {
 
         if (this.mixer) {
             this.mixer.update(this.clock.getDelta());
+        }
+
+        if (this.collisionManager) {
+            this.collisionManager.update();
         }
         
         const { clientWidth, clientHeight } = this.renderer.domElement;
@@ -114,6 +120,7 @@ export class Viewer {
 
         if (Object.keys(this.animations).length > 0) {
             this.mixer = new THREE.AnimationMixer(this.model);
+            this.collisionManager = new CollisionManager(this.model);
         }
 
         this.setupSkeletonHelper();
@@ -133,6 +140,7 @@ export class Viewer {
             this.mixer.stopAllAction();
             this.mixer = null;
         }
+        this.collisionManager = null;
         this.animations = {};
         this.activeAction = null;
     }
