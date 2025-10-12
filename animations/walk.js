@@ -15,177 +15,162 @@ export function createWalkAnimation(skeleton, hipPos, markerPositions) {
     const shoulderR = skeleton.getBoneByName('right_shoulder');
     const elbowL = skeleton.getBoneByName('left_elbow');
     const elbowR = skeleton.getBoneByName('right_elbow');
-    const kneeL = skeleton.getBoneByName('left_knee');
-    const kneeR = skeleton.getBoneByName('right_knee');
     const hipL = skeleton.getBoneByName('left_hip');
     const hipR = skeleton.getBoneByName('right_hip');
+    const kneeL = skeleton.getBoneByName('left_knee');
+    const kneeR = skeleton.getBoneByName('right_knee');
+    const ankleL = skeleton.getBoneByName('left_ankle');
+    const ankleR = skeleton.getBoneByName('right_ankle');
 
-    if (!hips || !spine || !shoulderL || !shoulderR || !elbowL || !elbowR || !kneeL || !kneeR || !hipL || !hipR) return null;
+    if (!hips || !spine || !shoulderL || !shoulderR || !elbowL || !elbowR || !hipL || !hipR || !kneeL || !kneeR || !ankleL || !ankleR) return null;
 
-    const walkTimes = [0, 0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
+    const walkTimes = [0, 0.25, 0.5, 0.75, 1]; // One full cycle
     const walkTracks = [];
     const interpolation = THREE.InterpolateSmooth;
 
-    // Hip position - forward/backward and side-to-side motion
+    // --- Hip Movement ---
     const initialHipPos = hipPos.clone();
-    const stepLength = 0.02; // Smaller forward motion per step
-    const hipSway = 0.015; // Side-to-side sway
-    const hipVertical = 0.008; // Up/down bob
-
+    const hipVertical = 0.01; // Up/down bob
     walkTracks.push(new THREE.VectorKeyframeTrack(`${hips.name}.position`, walkTimes, [
-        initialHipPos.x - hipSway, initialHipPos.y, initialHipPos.z,
-        initialHipPos.x, initialHipPos.y + hipVertical, initialHipPos.z + stepLength * 0.25,
-        initialHipPos.x + hipSway, initialHipPos.y, initialHipPos.z + stepLength * 0.5,
-        initialHipPos.x, initialHipPos.y + hipVertical, initialHipPos.z + stepLength * 0.75,
-        initialHipPos.x - hipSway, initialHipPos.y, initialHipPos.z + stepLength,
-        initialHipPos.x, initialHipPos.y + hipVertical, initialHipPos.z + stepLength * 1.25,
-        initialHipPos.x + hipSway, initialHipPos.y, initialHipPos.z + stepLength * 1.5,
-        initialHipPos.x, initialHipPos.y + hipVertical, initialHipPos.z + stepLength * 1.75,
-        initialHipPos.x - hipSway, initialHipPos.y, initialHipPos.z + stepLength * 2,
+        initialHipPos.x, initialHipPos.y + hipVertical, initialHipPos.z, // Peak height at contact
+        initialHipPos.x, initialHipPos.y, initialHipPos.z, // Low point mid-stance
+        initialHipPos.x, initialHipPos.y + hipVertical, initialHipPos.z, // Peak height at contact
+        initialHipPos.x, initialHipPos.y, initialHipPos.z, // Low point mid-stance
+        initialHipPos.x, initialHipPos.y + hipVertical, initialHipPos.z,
     ], interpolation));
 
-    // Hip rotation - slight rotation with steps
-    const hipRotAngle = Math.PI / 36; // Reduced rotation ~5 degrees
-    walkTracks.push(new THREE.QuaternionKeyframeTrack(`${hips.name}.quaternion`, walkTimes, [
-        ...new THREE.Quaternion().setFromEuler(new THREE.Euler(0, -hipRotAngle, 0)).toArray(),
-        ...new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, 0)).toArray(),
-        ...new THREE.Quaternion().setFromEuler(new THREE.Euler(0, hipRotAngle, 0)).toArray(),
-        ...new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, 0)).toArray(),
-        ...new THREE.Quaternion().setFromEuler(new THREE.Euler(0, -hipRotAngle, 0)).toArray(),
-        ...new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, 0)).toArray(),
-        ...new THREE.Quaternion().setFromEuler(new THREE.Euler(0, hipRotAngle, 0)).toArray(),
-        ...new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, 0)).toArray(),
-        ...new THREE.Quaternion().setFromEuler(new THREE.Euler(0, -hipRotAngle, 0)).toArray(),
-    ], interpolation));
+    // --- Leg Animation (based on gait cycle) ---
+    const hipFlexion = Math.PI / 8; // Max forward leg swing (22.5 deg)
+    const hipExtension = -Math.PI / 9; // Max backward leg swing (-20 deg)
+    const kneeFlexion = Math.PI / 2.5; // Max knee bend during swing (72 deg)
+    const ankleFlexion = Math.PI / 18; // Ankle bend up (10 deg)
+    const ankleExtension = -Math.PI / 12; // Ankle bend down (-15 deg)
+    const hipAbduction = -Math.PI / 36; // Slight outward hip rotation for knee clearance
 
-    // Left hip joint - creates the stepping motion by rotating the entire leg forward/backward
-    const legStepAngle = Math.PI / 12; // 15 degrees forward/backward step
+    // Euler angles for key poses
+    // Switched rotation from X-axis to Z-axis for forward motion
+    const eHipForward = new THREE.Euler(0, 0, hipFlexion);
+    const eHipBack = new THREE.Euler(0, 0, hipExtension);
+    const eHipNeutral = new THREE.Euler(0, 0, 0);
+    
+    // For mid-swing pose, we combine forward swing with abduction (outward rotation).
+    // This must be done with Quaternions.
+    const eHipSwingOnly = new THREE.Euler(0, 0, hipFlexion * 0.5, 'XYZ');
+    const qHipSwingOnly = new THREE.Quaternion().setFromEuler(eHipSwingOnly);
+
+    const eHipAbduction = new THREE.Euler(hipAbduction, 0, 0, 'XYZ');
+    const qHipAbduction = new THREE.Quaternion().setFromEuler(eHipAbduction);
+
+    // Combine swing and abduction. The order matters: swing first, then abduct.
+    const qHipSwing = qHipSwingOnly.multiply(qHipAbduction);
+
+    const eKneeStraight = new THREE.Euler(0, 0, 0);
+    const eKneeBent = new THREE.Euler(0, 0, -kneeFlexion);
+    const eKneeSlightlyBent = new THREE.Euler(0, 0, -kneeFlexion * 0.2);
+
+    const eAnkleNeutral = new THREE.Euler(0, 0, 0);
+    const eAnkleUp = new THREE.Euler(0, 0, -ankleFlexion);
+    const eAnkleDown = new THREE.Euler(0, 0, ankleExtension);
+
+    // Quaternions from Eulers
+    const qHipFwd = new THREE.Quaternion().setFromEuler(eHipForward);
+    const qHipBack = new THREE.Quaternion().setFromEuler(eHipBack);
+    const qHipNeutral = new THREE.Quaternion().setFromEuler(eHipNeutral);
+    // qHipSwing is already defined above
+
+
+    const qKneeStraight = new THREE.Quaternion().setFromEuler(eKneeStraight);
+    const qKneeBent = new THREE.Quaternion().setFromEuler(eKneeBent);
+    const qKneeSlightlyBent = new THREE.Quaternion().setFromEuler(eKneeSlightlyBent);
+
+    const qAnkleNeutral = new THREE.Quaternion().setFromEuler(eAnkleNeutral);
+    const qAnkleUp = new THREE.Quaternion().setFromEuler(eAnkleUp);
+    const qAnkleDown = new THREE.Quaternion().setFromEuler(eAnkleDown);
+
+    // Left Leg Keyframes (Starts cycle with heel strike)
+    // 0.0s: L heel strike (leg fwd, straight) | R push-off (leg back)
+    // 0.25s: L mid-stance (supporting) | R mid-swing (knee bent)
+    // 0.5s: L push-off (leg back) | R heel strike (leg fwd, straight)
+    // 0.75s: L mid-swing (knee bent) | R mid-stance (supporting)
+    // 1.0s: L heel strike again
     walkTracks.push(new THREE.QuaternionKeyframeTrack(`${hipL.name}.quaternion`, walkTimes, [
-        ...new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, legStepAngle)).toArray(),   // Left leg forward
-        ...new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, 0)).toArray(),              // Neutral
-        ...new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, -legStepAngle)).toArray(),  // Left leg back
-        ...new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, 0)).toArray(),              // Neutral
-        ...new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, legStepAngle)).toArray(),   // Left leg forward
-        ...new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, 0)).toArray(),              // Neutral
-        ...new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, -legStepAngle)).toArray(),  // Left leg back
-        ...new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, 0)).toArray(),              // Neutral
-        ...new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, legStepAngle)).toArray(),   // Left leg forward
+        ...qHipFwd.toArray(), ...qHipNeutral.toArray(), ...qHipBack.toArray(), ...qHipSwing.toArray(), ...qHipFwd.toArray()
     ], interpolation));
-
-    // Right hip joint - opposite phase to left hip
-    walkTracks.push(new THREE.QuaternionKeyframeTrack(`${hipR.name}.quaternion`, walkTimes, [
-        ...new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, -legStepAngle)).toArray(),  // Right leg back (opposite)
-        ...new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, 0)).toArray(),              // Neutral
-        ...new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, legStepAngle)).toArray(),   // Right leg forward
-        ...new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, 0)).toArray(),              // Neutral
-        ...new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, -legStepAngle)).toArray(),  // Right leg back
-        ...new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, 0)).toArray(),              // Neutral
-        ...new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, legStepAngle)).toArray(),   // Right leg forward
-        ...new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, 0)).toArray(),              // Neutral
-        ...new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, -legStepAngle)).toArray(),  // Right leg back
-    ], interpolation));
-
-    // Left knee - bends when leg is lifting (when leg is moving forward)
-    const kneeBendAngle = Math.PI / 6; // 30 degrees - more bend when lifting
     walkTracks.push(new THREE.QuaternionKeyframeTrack(`${kneeL.name}.quaternion`, walkTimes, [
-        ...new THREE.Quaternion().setFromEuler(new THREE.Euler(kneeBendAngle, 0, 0)).toArray(),     // Max bend (leg forward/lifting)
-        ...new THREE.Quaternion().setFromEuler(new THREE.Euler(kneeBendAngle * 0.5, 0, 0)).toArray(), // Straightening
-        ...new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, 0)).toArray(),                // Straight (leg back/planted)
-        ...new THREE.Quaternion().setFromEuler(new THREE.Euler(kneeBendAngle * 0.5, 0, 0)).toArray(), // Starting to bend
-        ...new THREE.Quaternion().setFromEuler(new THREE.Euler(kneeBendAngle, 0, 0)).toArray(),     // Max bend (leg forward/lifting)
-        ...new THREE.Quaternion().setFromEuler(new THREE.Euler(kneeBendAngle * 0.5, 0, 0)).toArray(), // Straightening
-        ...new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, 0)).toArray(),                // Straight (leg back/planted)
-        ...new THREE.Quaternion().setFromEuler(new THREE.Euler(kneeBendAngle * 0.5, 0, 0)).toArray(), // Starting to bend
-        ...new THREE.Quaternion().setFromEuler(new THREE.Euler(kneeBendAngle, 0, 0)).toArray(),     // Max bend (leg forward/lifting)
+        ...qKneeStraight.toArray(), ...qKneeSlightlyBent.toArray(), ...qKneeSlightlyBent.toArray(), ...qKneeBent.toArray(), ...qKneeStraight.toArray()
+    ], interpolation));
+    walkTracks.push(new THREE.QuaternionKeyframeTrack(`${ankleL.name}.quaternion`, walkTimes, [
+        ...qAnkleUp.toArray(), ...qAnkleNeutral.toArray(), ...qAnkleDown.toArray(), ...qAnkleUp.toArray(), ...qAnkleUp.toArray()
     ], interpolation));
 
-    // Right knee - opposite phase, bends when right leg is lifting
+    // Right Leg Keyframes (Offset by 0.5s from left leg)
+    walkTracks.push(new THREE.QuaternionKeyframeTrack(`${hipR.name}.quaternion`, walkTimes, [
+        ...qHipBack.toArray(), ...qHipSwing.toArray(), ...qHipFwd.toArray(), ...qHipNeutral.toArray(), ...qHipBack.toArray()
+    ], interpolation));
     walkTracks.push(new THREE.QuaternionKeyframeTrack(`${kneeR.name}.quaternion`, walkTimes, [
-        ...new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, 0)).toArray(),                // Straight (leg back/planted) - opposite phase
-        ...new THREE.Quaternion().setFromEuler(new THREE.Euler(kneeBendAngle * 0.5, 0, 0)).toArray(), // Starting to bend
-        ...new THREE.Quaternion().setFromEuler(new THREE.Euler(kneeBendAngle, 0, 0)).toArray(),     // Max bend (leg forward/lifting)
-        ...new THREE.Quaternion().setFromEuler(new THREE.Euler(kneeBendAngle * 0.5, 0, 0)).toArray(), // Straightening
-        ...new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, 0)).toArray(),                // Straight (leg back/planted)
-        ...new THREE.Quaternion().setFromEuler(new THREE.Euler(kneeBendAngle * 0.5, 0, 0)).toArray(), // Starting to bend
-        ...new THREE.Quaternion().setFromEuler(new THREE.Euler(kneeBendAngle, 0, 0)).toArray(),     // Max bend (leg forward/lifting)
-        ...new THREE.Quaternion().setFromEuler(new THREE.Euler(kneeBendAngle * 0.5, 0, 0)).toArray(), // Straightening
-        ...new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, 0)).toArray(),                // Straight (leg back/planted)
+        ...qKneeSlightlyBent.toArray(), ...qKneeBent.toArray(), ...qKneeStraight.toArray(), ...qKneeSlightlyBent.toArray(), ...qKneeSlightlyBent.toArray()
+    ], interpolation));
+    walkTracks.push(new THREE.QuaternionKeyframeTrack(`${ankleR.name}.quaternion`, walkTimes, [
+        ...qAnkleDown.toArray(), ...qAnkleUp.toArray(), ...qAnkleUp.toArray(), ...qAnkleNeutral.toArray(), ...qAnkleDown.toArray()
     ], interpolation));
 
-    // Arms swing forward/backward during walk (around X-axis since arms are down)
+
+    // --- Arm Swing ---
     const qDownL = makeArmDownQuaternion(markerPositions, 'left_shoulder', 'left_elbow');
     const qDownR = makeArmDownQuaternion(markerPositions, 'right_shoulder', 'right_elbow');
 
-    const armSwingAngle = Math.PI / 15; // 12 degrees
-    const qSwingL_Forward = new THREE.Quaternion().setFromEuler(new THREE.Euler(armSwingAngle, 0, 0));
-    const qSwingL_Back = new THREE.Quaternion().setFromEuler(new THREE.Euler(-armSwingAngle, 0, 0));
-    const qSwingR_Forward = new THREE.Quaternion().setFromEuler(new THREE.Euler(armSwingAngle, 0, 0));
-    const qSwingR_Back = new THREE.Quaternion().setFromEuler(new THREE.Euler(-armSwingAngle, 0, 0));
+    const armSwingAngle = Math.PI / 12; // 15 degrees
+    const armAbduction = Math.PI / 18; // 10 degrees outward to prevent clipping
+    
+    // Create base rotation for abducted (outward) arms
+    const qAbductL = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, -armAbduction));
+    const qAbductR = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, armAbduction));
+    
+    // The final "arms down" pose will be slightly out from the body
+    const qDownAbductedL = qAbductL.clone().multiply(qDownL);
+    const qDownAbductedR = qAbductR.clone().multiply(qDownR);
+    
+    // Swing rotations are now applied relative to this abducted pose
+    const qSwingL_Forward = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, -armSwingAngle));
+    const qSwingL_Back = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, armSwingAngle));
+    const qSwingR_Forward = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, -armSwingAngle));
+    const qSwingR_Back = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, armSwingAngle));
 
-    // Left arm swings forward when left leg is back (natural walking motion)
-    walkTracks.push(new THREE.QuaternionKeyframeTrack(`${shoulderL.name}.quaternion`, walkTimes, [
-        ...qSwingL_Back.clone().multiply(qDownL).toArray(),
-        ...qDownL.toArray(),
-        ...qSwingL_Forward.clone().multiply(qDownL).toArray(),
-        ...qDownL.toArray(),
-        ...qSwingL_Back.clone().multiply(qDownL).toArray(),
-        ...qDownL.toArray(),
-        ...qSwingL_Forward.clone().multiply(qDownL).toArray(),
-        ...qDownL.toArray(),
-        ...qSwingL_Back.clone().multiply(qDownL).toArray(),
+    // Right arm swings forward with left leg
+    walkTracks.push(new THREE.QuaternionKeyframeTrack(`${shoulderR.name}.quaternion`, walkTimes, [
+        ...qSwingR_Forward.clone().multiply(qDownAbductedR).toArray(),
+        ...qDownAbductedR.toArray(),
+        ...qSwingR_Back.clone().multiply(qDownAbductedR).toArray(),
+        ...qDownAbductedR.toArray(),
+        ...qSwingR_Forward.clone().multiply(qDownAbductedR).toArray(),
     ], interpolation));
 
-    // Right arm swings opposite to left arm
-    walkTracks.push(new THREE.QuaternionKeyframeTrack(`${shoulderR.name}.quaternion`, walkTimes, [
-        ...qSwingR_Forward.clone().multiply(qDownR).toArray(),
-        ...qDownR.toArray(),
-        ...qSwingR_Back.clone().multiply(qDownR).toArray(),
-        ...qDownR.toArray(),
-        ...qSwingR_Forward.clone().multiply(qDownR).toArray(),
-        ...qDownR.toArray(),
-        ...qSwingR_Back.clone().multiply(qDownR).toArray(),
-        ...qDownR.toArray(),
-        ...qSwingR_Forward.clone().multiply(qDownR).toArray(),
+    // Left arm swings opposite
+    walkTracks.push(new THREE.QuaternionKeyframeTrack(`${shoulderL.name}.quaternion`, walkTimes, [
+        ...qSwingL_Back.clone().multiply(qDownAbductedL).toArray(),
+        ...qDownAbductedL.toArray(),
+        ...qSwingL_Forward.clone().multiply(qDownAbductedL).toArray(),
+        ...qDownAbductedL.toArray(),
+        ...qSwingL_Back.clone().multiply(qDownAbductedL).toArray(),
     ], interpolation));
 
     // Slight elbow bends during walk
-    const elbowWalkBend = Math.PI / 20; // Small bend
-    walkTracks.push(new THREE.QuaternionKeyframeTrack(`${elbowL.name}.quaternion`, walkTimes, [
-        ...new THREE.Quaternion().setFromEuler(new THREE.Euler(0, elbowWalkBend, 0)).toArray(),
-        ...new THREE.Quaternion().setFromEuler(new THREE.Euler(0, elbowWalkBend * 1.5, 0)).toArray(),
-        ...new THREE.Quaternion().setFromEuler(new THREE.Euler(0, elbowWalkBend, 0)).toArray(),
-        ...new THREE.Quaternion().setFromEuler(new THREE.Euler(0, elbowWalkBend * 1.5, 0)).toArray(),
-        ...new THREE.Quaternion().setFromEuler(new THREE.Euler(0, elbowWalkBend, 0)).toArray(),
-        ...new THREE.Quaternion().setFromEuler(new THREE.Euler(0, elbowWalkBend * 1.5, 0)).toArray(),
-        ...new THREE.Quaternion().setFromEuler(new THREE.Euler(0, elbowWalkBend, 0)).toArray(),
-        ...new THREE.Quaternion().setFromEuler(new THREE.Euler(0, elbowWalkBend * 1.5, 0)).toArray(),
-        ...new THREE.Quaternion().setFromEuler(new THREE.Euler(0, elbowWalkBend, 0)).toArray(),
-    ], interpolation));
-
-    walkTracks.push(new THREE.QuaternionKeyframeTrack(`${elbowR.name}.quaternion`, walkTimes, [
-        ...new THREE.Quaternion().setFromEuler(new THREE.Euler(0, -elbowWalkBend, 0)).toArray(),
-        ...new THREE.Quaternion().setFromEuler(new THREE.Euler(0, -elbowWalkBend * 1.5, 0)).toArray(),
-        ...new THREE.Quaternion().setFromEuler(new THREE.Euler(0, -elbowWalkBend, 0)).toArray(),
-        ...new THREE.Quaternion().setFromEuler(new THREE.Euler(0, -elbowWalkBend * 1.5, 0)).toArray(),
-        ...new THREE.Quaternion().setFromEuler(new THREE.Euler(0, -elbowWalkBend, 0)).toArray(),
-        ...new THREE.Quaternion().setFromEuler(new THREE.Euler(0, -elbowWalkBend * 1.5, 0)).toArray(),
-        ...new THREE.Quaternion().setFromEuler(new THREE.Euler(0, -elbowWalkBend, 0)).toArray(),
-        ...new THREE.Quaternion().setFromEuler(new THREE.Euler(0, -elbowWalkBend * 1.5, 0)).toArray(),
-        ...new THREE.Quaternion().setFromEuler(new THREE.Euler(0, -elbowWalkBend, 0)).toArray(),
-    ], interpolation));
+    const elbowWalkBend = Math.PI / 20;
+    const qElbowL = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, elbowWalkBend, 0));
+    const qElbowR = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, -elbowWalkBend, 0));
+    walkTracks.push(new THREE.QuaternionKeyframeTrack(`${elbowL.name}.quaternion`, [0], qElbowL.toArray()));
+    walkTracks.push(new THREE.QuaternionKeyframeTrack(`${elbowR.name}.quaternion`, [0], qElbowR.toArray()));
 
     // Spine counter-rotation for balance
-    const spineCounterAngle = Math.PI / 36; // Small counter-rotation
+    const spineCounterAngle = Math.PI / 48; // ~3.75 degrees
+    const qSpineL = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, spineCounterAngle, 0));
+    const qSpineR = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, -spineCounterAngle, 0));
     walkTracks.push(new THREE.QuaternionKeyframeTrack(`${spine.name}.quaternion`, walkTimes, [
-        ...new THREE.Quaternion().setFromEuler(new THREE.Euler(0, spineCounterAngle, 0)).toArray(),
-        ...new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, 0)).toArray(),
-        ...new THREE.Quaternion().setFromEuler(new THREE.Euler(0, -spineCounterAngle, 0)).toArray(),
-        ...new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, 0)).toArray(),
-        ...new THREE.Quaternion().setFromEuler(new THREE.Euler(0, spineCounterAngle, 0)).toArray(),
-        ...new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, 0)).toArray(),
-        ...new THREE.Quaternion().setFromEuler(new THREE.Euler(0, -spineCounterAngle, 0)).toArray(),
-        ...new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, 0)).toArray(),
-        ...new THREE.Quaternion().setFromEuler(new THREE.Euler(0, spineCounterAngle, 0)).toArray(),
+        ...qSpineR.toArray(),
+        ...new THREE.Quaternion().toArray(),
+        ...qSpineL.toArray(),
+        ...new THREE.Quaternion().toArray(),
+        ...qSpineR.toArray(),
     ], interpolation));
 
     const walkClip = new THREE.AnimationClip('walk', -1, walkTracks);

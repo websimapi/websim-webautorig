@@ -213,6 +213,32 @@ button.primary-btn:hover:not(:disabled) {
     width: 100%;
 }
 
+.error-container {
+    background-color: #5a2828;
+    color: #ffcccc;
+    border: 1px solid #a04040;
+    border-radius: 4px;
+    padding: 1rem;
+    margin-top: 1rem;
+}
+.error-container p {
+    margin: 0 0 0.5rem 0;
+    word-break: break-word;
+}
+.error-container .button-group {
+    margin-top: 0.5rem;
+}
+.error-container button {
+    background-color: #a04040;
+    border-color: #c06060;
+    padding: 0.5rem 0.75rem;
+    font-size: 0.9em;
+    flex-grow: 1; /* Stretch to fill */
+}
+.error-container button:hover {
+    background-color: #b05050;
+}
+
 
 /* Preview View */
 #preview-view {

@@ -2,6 +2,14 @@ export class EditorControls {
     constructor(handlers) {
         this.handlers = handlers;
         this.setupButtons();
+        
+        this.errorContainer = document.getElementById('error-container');
+        this.errorMessageSpan = document.getElementById('error-message');
+        this.copyErrorBtn = document.getElementById('copy-error-btn');
+        this.clearErrorBtn = document.getElementById('clear-error-btn');
+
+        this.clearErrorBtn?.addEventListener('click', () => this.hideError());
+        this.copyErrorBtn?.addEventListener('click', () => this.copyError());
     }
 
     setupButtons() {
@@ -31,6 +39,7 @@ export class EditorControls {
         const progressLabel = document.getElementById('progress-label');
         const progressBar = document.getElementById('progress-bar');
         
+        this.hideError();
         container.style.display = 'block';
         progressBar.value = progress * 100;
         progressLabel.textContent = label;
@@ -40,6 +49,32 @@ export class EditorControls {
         document.querySelector('.progress-container').style.display = 'none';
     }
 
+    showError(error) {
+        this.hideProgress();
+        this.errorMessageSpan.textContent = error.message || String(error);
+        this.errorContainer.style.display = 'block';
+    }
+
+    hideError() {
+        if (this.errorContainer) {
+            this.errorContainer.style.display = 'none';
+        }
+    }
+
+    copyError() {
+        const errorText = this.errorMessageSpan.textContent;
+        if (navigator.clipboard) {
+            navigator.clipboard.writeText(errorText).then(() => {
+                alert('Error copied to clipboard!');
+            }).catch(err => {
+                console.error('Failed to copy error: ', err);
+                alert('Failed to copy error.');
+            });
+        } else {
+            alert('Clipboard API not available. Please copy the text manually.');
+        }
+    }
+
     setButtonsEnabled(enabled) {
         document.getElementById('auto-detect-btn').disabled = !enabled;
         document.getElementById('mobile-auto-detect-btn').disabled = !enabled;
@@ -47,4 +82,3 @@ export class EditorControls {
         document.getElementById('mobile-rig-btn').disabled = !enabled;
     }
 }
-

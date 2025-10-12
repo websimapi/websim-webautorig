@@ -90,6 +90,7 @@ export class App {
     async handleAutoDetect() {
         if (!this.editorViewer) return;
 
+        this.editorControls.hideError();
         this.editorControls.setButtonsEnabled(false);
 
         try {
@@ -111,8 +112,7 @@ export class App {
 
         } catch (error) {
             console.error('Auto-detect failed:', error);
-            alert(error.message || 'Pose detection failed. Please try manual placement or adjust the model view.');
-            this.editorControls.hideProgress();
+            this.editorControls.showError(error);
             this.editorControls.setButtonsEnabled(true);
         }
     }
@@ -129,6 +129,7 @@ export class App {
     }
 
     async handleRigging() {
+        this.editorControls.hideError();
         this.editorControls.setButtonsEnabled(false);
 
         try {
@@ -154,8 +155,7 @@ export class App {
 
         } catch (error) {
             console.error('Rigging failed:', error);
-            alert('Rigging failed. Check console for details.');
-            this.editorControls.hideProgress();
+            this.editorControls.showError(error);
             this.editorControls.setButtonsEnabled(true);
         }
     }
@@ -213,6 +213,7 @@ export class App {
         this.markerList.reset();
         this.editorControls.setRigButtonEnabled(false);
         this.editorControls.hideProgress();
+        this.editorControls.hideError();
         this.previewControls.setExportEnabled(false);
         this.previewControls.reset();
 
