@@ -1,0 +1,258 @@
+/* ...existing code... */
+.view {
+    display: none;
+    width: 100%;
+    height: 100%;
+    /* justify-content: center; REMOVED */
+    /* align-items: center; REMOVED */
+}
+
+.view.active {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+}
+
+.panel {
+/* ...existing code... */
+    padding: 1rem;
+    max-width: 100%;
+    box-shadow: none;
+    border-radius: 0;
+    border-left: none;
+    border-right: none;
+}
+
+/* Upload View */
+#upload-view {
+    justify-content: center;
+    align-items: center;
+}
+
+#upload-view .panel {
+    border: none;
+    background: transparent;
+    max-width: 500px; /* Restore max-width for upload panel */
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3); /* Restore shadow for upload panel */
+    padding: 2rem; /* Restore padding */
+    border-radius: 8px; /* Restore border-radius */
+}
+
+.upload-box {
+/* ...existing code... */
+/* ...existing code... */
+#editor-view {
+    /* flex-direction: row; REMOVED */
+    /* align-items: stretch; REMOVED */
+}
+
+#viewer-container {
+/* ...existing code... */
+/* ...existing code... */
+#editor-panel {
+    width: 100%;
+    max-width: 100%;
+    border-radius: 0;
+    /* border-left: 1px solid var(--border-color); REMOVED */
+    border-top: 1px solid var(--border-color);
+    display: flex;
+    flex-direction: column;
+    flex-shrink: 0;
+    padding-bottom: max(1rem, env(safe-area-inset-bottom));
+    padding-top: 0.5rem;
+    padding-left: 0.5rem;
+    padding-right: 0.5rem;
+}
+
+#editor-panel h2, #editor-panel p {
+    display: none;
+}
+
+#marker-list {
+    display: none;
+}
+
+.button-group {
+    display: flex;
+    gap: 0.5rem;
+    /* margin-top: 1rem; REMOVED */
+}
+
+.desktop-only-flex {
+    display: none;
+}
+
+button {
+    flex-grow: 1;
+/* ...existing code... */
+/* ...existing code... */
+/* Preview View */
+#preview-view {
+    /* flex-direction: row; REMOVED */
+    /* align-items: stretch; REMOVED */
+}
+
+#preview-viewer-container {
+/* ...existing code... */
+/* ...existing code... */
+#preview-panel {
+    width: 100%;
+    max-width: 100%;
+    border-radius: 0;
+    /* border-left: 1px solid var(--border-color); REMOVED */
+    border-top: 1px solid var(--border-color);
+    display: flex;
+    flex-direction: column;
+    flex-shrink: 0;
+    padding-bottom: max(1rem, env(safe-area-inset-bottom));
+    padding-left: 0.5rem;
+    padding-right: 0.5rem;
+}
+
+#preview-panel h2, #preview-panel p {
+    display: none;
+}
+
+#preview-panel .options-group {
+    margin: 1rem 0;
+}
+
+/* ...existing code... */
+/* ...existing code... */
+.toggle-switch input:checked + .slider::before {
+    transform: translateX(20px);
+}
+
+/* Hide elements based on screen size */
+.mobile-only {
+    display: flex;
+}
+
+.desktop-only {
+    display: none; /* Default state for desktop */
+}
+
+/* Mobile responsiveness */
+@media (max-width: 768px) {
+    body {
+        height: 100svh; /* Use small viewport height and prevent scrolling */
+        overflow: hidden;
+    }
+
+    main {
+        overflow: hidden;
+    }
+
+    /* Show/hide elements for mobile - NOW THE DEFAULT */
+    /* .mobile-only {
+        display: flex;
+    }
+    .desktop-only {
+        display: none;
+    }
+    .desktop-only-flex {
+        display: none;
+    } */
+
+    /* .view,
+    #editor-view,
+    #preview-view {
+        flex-direction: column;
+        height: 100%;
+    } */
+
+    .panel {
+        /* Styles moved to be default */
+    }
+
+    #upload-view {
+        /* justify-content: center; NOW THE DEFAULT */
+        text-align: center;
+        padding: 1rem;
+    }
+
+    #upload-view .panel {
+        /* border: none; NOW THE DEFAULT */
+        /* background: transparent; NOW THE DEFAULT */
+    }
+    
+    /* Editor View on Mobile */
+    #viewer-container {
+        flex-grow: 1;
+        flex-basis: 0;
+        min-height: 200px;
+    }
+
+    #editor-panel {
+        /* Styles moved to be default */
+    }
+
+    /* #editor-panel h2, #editor-panel p {
+        display: none;
+    } */
+
+    #mobile-marker-controls {
+        display: flex;
+        width: 100%;
+        align-items: center;
+        gap: 0.5rem;
+    }
+
+    #marker-icons-container {
+/* ...existing code... */
+        display: none; /* Chrome, Safari, Opera */
+    }
+
+    .marker-icon {
+/* ...existing code... */
+        background-repeat: no-repeat;
+        padding: 0;
+    }
+
+    .marker-icon.flip-h {
+/* ...existing code... */
+        border-color: var(--primary-color);
+        background-color: rgba(0, 170, 255, 0.2);
+    }
+
+    .icon-btn {
+/* ...existing code... */
+        border-color: var(--primary-color);
+    }
+
+    #mobile-action-buttons {
+/* ...existing code... */
+        gap: 0.5rem;
+    }
+    
+    #mobile-preview-controls {
+/* ...existing code... */
+        width: 100%;
+    }
+
+    #mobile-preview-controls #mobile-animation-select {
+/* ...existing code... */
+        height: 50px;
+        padding: 0 0.5rem;
+    }
+
+    /* #marker-list {
+        display: none;
+    } */
+
+    #marker-list li {
+        padding: 0.75rem; /* Reduce padding slightly */
+    }
+    
+    .button-group {
+        flex-direction: row; /* Keep buttons side by side */
+        gap: 0.5rem;
+    }
+
+    #preview-view .panel {
+        display: flex;
+        flex-direction: column;
+        justify-content: flex-start;
+        text-align: left;
+    }
+}
