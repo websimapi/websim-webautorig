@@ -119,39 +119,30 @@ export function createWalkAnimation(skeleton, hipPos, markerPositions) {
     const qDownL = makeArmDownQuaternion(markerPositions, 'left_shoulder', 'left_elbow');
     const qDownR = makeArmDownQuaternion(markerPositions, 'right_shoulder', 'right_elbow');
 
-    const armSwingAngle = Math.PI / 14; // ~12.8 degrees, reduced from 15
-    const armAbduction = Math.PI / 8; // 22.5 degrees outward to prevent clipping, increased from 15
-    
-    // Create base rotation for abducted (outward) arms
-    const qAbductL = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, -armAbduction));
-    const qAbductR = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, armAbduction));
-    
-    // The final "arms down" pose will be slightly out from the body
-    const qDownAbductedL = qAbductL.clone().multiply(qDownL);
-    const qDownAbductedR = qAbductR.clone().multiply(qDownR);
-    
-    // Swing rotations are now applied relative to this abducted pose
-    const qSwingL_Forward = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, -armSwingAngle));
-    const qSwingL_Back = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, armSwingAngle));
-    const qSwingR_Forward = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, -armSwingAngle));
-    const qSwingR_Back = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, armSwingAngle));
+    const armSwingAngle = Math.PI / 10; // ~18 degrees, a more natural swing
 
-    // Right arm swings forward with left leg
+    // Swing rotations are forward/backward. For a T-pose character, this corresponds
+    // to rotation around the local Z-axis of the shoulder bone.
+    const qSwingFwd = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, armSwingAngle));
+    const qSwingBack = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, -armSwingAngle));
+
+    // Right arm swings forward with left leg.
+    // The final rotation is: first, swing the arm, then rotate it down to the side.
     walkTracks.push(new THREE.QuaternionKeyframeTrack(`${shoulderR.name}.quaternion`, walkTimes, [
-        ...qSwingR_Forward.clone().multiply(qDownAbductedR).toArray(),
-        ...qDownAbductedR.toArray(),
-        ...qSwingR_Back.clone().multiply(qDownAbductedR).toArray(),
-        ...qDownAbductedR.toArray(),
-        ...qSwingR_Forward.clone().multiply(qDownAbductedR).toArray(),
+        ...qDownR.clone().premultiply(qSwingFwd).toArray(),
+        ...qDownR.toArray(),
+        ...qDownR.clone().premultiply(qSwingBack).toArray(),
+        ...qDownR.toArray(),
+        ...qDownR.clone().premultiply(qSwingFwd).toArray(),
     ], interpolation));
 
-    // Left arm swings opposite
+    // Left arm swings opposite.
     walkTracks.push(new THREE.QuaternionKeyframeTrack(`${shoulderL.name}.quaternion`, walkTimes, [
-        ...qSwingL_Back.clone().multiply(qDownAbductedL).toArray(),
-        ...qDownAbductedL.toArray(),
-        ...qSwingL_Forward.clone().multiply(qDownAbductedL).toArray(),
-        ...qDownAbductedL.toArray(),
-        ...qSwingL_Back.clone().multiply(qDownAbductedL).toArray(),
+        ...qDownL.clone().premultiply(qSwingBack).toArray(),
+        ...qDownL.toArray(),
+        ...qDownL.clone().premultiply(qSwingFwd).toArray(),
+        ...qDownL.toArray(),
+        ...qDownL.clone().premultiply(qSwingBack).toArray(),
     ], interpolation));
 
     // Slight elbow bends during walk
