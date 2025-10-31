@@ -119,8 +119,8 @@ export function createWalkAnimation(skeleton, hipPos, markerPositions) {
     const qDownL = makeArmDownQuaternion(markerPositions, 'left_shoulder', 'left_elbow');
     const qDownR = makeArmDownQuaternion(markerPositions, 'right_shoulder', 'right_elbow');
 
-    const armSwingAngle = Math.PI / 12; // 15 degrees
-    const armAbduction = Math.PI / 18; // 10 degrees outward to prevent clipping
+    const armSwingAngle = Math.PI / 14; // ~12.8 degrees, reduced from 15
+    const armAbduction = Math.PI / 8; // 22.5 degrees outward to prevent clipping, increased from 15
     
     // Create base rotation for abducted (outward) arms
     const qAbductL = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, -armAbduction));

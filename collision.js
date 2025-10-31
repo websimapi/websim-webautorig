@@ -174,8 +174,8 @@ export class CollisionManager {
         this.temp.correctionAxis.normalize();
         
         // --- STABILITY IMPROVEMENTS ---
-        const DAMPING_FACTOR = 0.3; // Apply only a fraction of the correction to smooth it out.
-        const MAX_CORRECTION_ANGLE = THREE.MathUtils.degToRad(2); // Clamp max rotation to 2 degrees per frame.
+        const DAMPING_FACTOR = 0.08; // Apply only a fraction of the correction to smooth it out.
+        const MAX_CORRECTION_ANGLE = THREE.MathUtils.degToRad(0.8); // Clamp max rotation to 0.8 degrees per frame.
 
         let angle = penetration / parentToCollisionLength;
         angle = Math.min(angle * DAMPING_FACTOR, MAX_CORRECTION_ANGLE); // Apply damping and clamping.
