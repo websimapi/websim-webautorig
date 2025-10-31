@@ -3,6 +3,7 @@ export class PreviewControls {
         this.handlers = handlers;
         this.skeletonVisible = false;
         this.meshVisible = true;
+        this.currentAnimation = 'none';
         this.setupButtons();
     }
 
@@ -20,9 +21,10 @@ export class PreviewControls {
             this.updateMeshUI(this.meshVisible);
             this.handlers.onMeshToggle(e.target.checked);
         });
-        document.getElementById('animation-select').addEventListener('change', (e) => 
+        document.getElementById('animation-select').addEventListener('change', (e) => {
+            this.currentAnimation = e.target.value;
             this.handlers.onAnimationChange(e.target.value)
-        );
+        });
 
         // Mobile controls
         document.getElementById('mobile-start-over-btn').addEventListener('click', this.handlers.onStartOver);
@@ -33,9 +35,10 @@ export class PreviewControls {
         document.getElementById('mobile-mesh-toggle-btn').addEventListener('click', () => {
             this.toggleMesh();
         });
-        document.getElementById('mobile-animation-select').addEventListener('change', (e) => 
+        document.getElementById('mobile-animation-select').addEventListener('change', (e) => {
+            this.currentAnimation = e.target.value;
             this.handlers.onAnimationChange(e.target.value)
-        );
+        });
 
         // Setup mobile button icons
         document.getElementById('mobile-start-over-btn').style.backgroundImage = `url(./icon_start_over.png)`;
@@ -82,6 +85,10 @@ export class PreviewControls {
         this.meshVisible = visible;
     }
 
+    getCurrentAnimation() {
+        return this.currentAnimation;
+    }
+
     populateAnimations(animations) {
         const animSelect = document.getElementById('animation-select');
         const mobileAnimSelect = document.getElementById('mobile-animation-select');
@@ -120,5 +127,6 @@ export class PreviewControls {
         document.getElementById('mesh-toggle').checked = true;
         document.getElementById('mobile-mesh-toggle-btn').classList.add('active');
         this.meshVisible = true;
+        this.currentAnimation = 'none';
     }
 }

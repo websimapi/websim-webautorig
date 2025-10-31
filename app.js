@@ -1,3 +1,4 @@
+import * as THREE from 'three';
 import { Viewer } from './viewer.js';
 import { rigCharacter } from './rigging.js';
 import { detectPoseAndPlaceMarkers } from './pose_detection.js';
@@ -171,13 +172,109 @@ export class App {
         this.previewControls.populateAnimations(this.animations);
     }
 
+    async bakeAnimationWithCollisions(clip) {
+        const viewer = this.previewViewer;
+        if (!viewer || !viewer.model || !viewer.mixer || !viewer.collisionManager || !clip) {
+            return clip;
+        }
+    
+        const originalAnimation = this.previewControls.getCurrentAnimation();
+        
+        // --- Setup for baking process ---
+        viewer.mixer.stopAllAction();
+        const action = viewer.mixer.clipAction(clip);
+        action.play();
+    
+        const sampleRate = 30;
+        const duration = clip.duration;
+        const step = 1 / sampleRate;
+        const numFrames = Math.floor(duration * sampleRate);
+    
+        let skeleton;
+        viewer.model.traverse(child => {
+            if (child.isSkinnedMesh) skeleton = child.skeleton;
+        });
+        if (!skeleton) return clip;
+        const bones = skeleton.bones;
+    
+        const newTracks = {};
+        bones.forEach(bone => {
+            newTracks[bone.name] = {
+                position: { times: [], values: [] },
+                quaternion: { times: [], values: [] },
+                scale: { times: [], values: [] },
+            };
+        });
+    
+        // --- Baking Loop: Step through animation and record transforms ---
+        for (let i = 0; i <= numFrames; i++) {
+            const time = i * step;
+            
+            // 1. Update the animation to the current time and apply collisions.
+            viewer.mixer.setTime(time);
+            viewer.collisionManager.update();
+            skeleton.update(); // Ensure all bone matrices are globally up-to-date
+            
+            // 2. Sample and store the final bone transforms.
+            bones.forEach(bone => {
+                const trackData = newTracks[bone.name];
+                
+                trackData.position.times.push(time);
+                bone.position.toArray(trackData.position.values, trackData.position.values.length);
+    
+                trackData.quaternion.times.push(time);
+                bone.quaternion.toArray(trackData.quaternion.values, trackData.quaternion.values.length);
+                
+                trackData.scale.times.push(time);
+                bone.scale.toArray(trackData.scale.values, trackData.scale.values.length);
+            });
+        }
+    
+        // --- Cleanup and Restore State ---
+        viewer.mixer.stopAllAction();
+        skeleton.pose();
+        
+        // Resume playing the animation that was active before baking.
+        viewer.playAnimation(originalAnimation);
+    
+        // --- Create a new AnimationClip with the baked tracks ---
+        const finalTracks = [];
+        for (const boneName in newTracks) {
+            const trackData = newTracks[boneName];
+            finalTracks.push(new THREE.VectorKeyframeTrack(
+                `${boneName}.position`, trackData.position.times, trackData.position.values
+            ));
+            finalTracks.push(new THREE.QuaternionKeyframeTrack(
+                `${boneName}.quaternion`, trackData.quaternion.times, trackData.quaternion.values
+            ));
+            finalTracks.push(new THREE.VectorKeyframeTrack(
+                `${boneName}.scale`, trackData.scale.times, trackData.scale.values
+            ));
+        }
+    
+        const bakedClip = new THREE.AnimationClip(`${clip.name}_baked`, duration, finalTracks);
+        return bakedClip;
+    }
+
     async exportRiggedModel() {
         if (!this.riggedModel) return;
+
+        // --- Bake animations before exporting ---
+        const bakedAnimations = [];
+        for (const animName in this.animations) {
+            const originalClip = this.animations[animName];
+            // Only bake animations, not the T-Pose.
+            if (originalClip) { 
+                const bakedClip = await this.bakeAnimationWithCollisions(originalClip);
+                bakedAnimations.push(bakedClip);
+            }
+        }
+        // --- End of baking process ---
 
         const exporter = new GLTFExporter();
         const options = {
             binary: true,
-            animations: Object.values(this.animations)
+            animations: bakedAnimations // Use the baked animations for export.
         };
 
         exporter.parse(
