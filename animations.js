@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { createWalkAnimation } from './animations/walk.js';
+import { createRunAnimation } from './animations/run.js';
 
 /**
  * Creates a walk animation for the given skeleton.
@@ -14,6 +15,9 @@ export function createAnimations(skeleton, hipPos, markerPositions) {
     
     const walkClip = createWalkAnimation(skeleton, hipPos, markerPositions);
     if (walkClip) animations.walk = walkClip;
+
+    const runClip = createRunAnimation(skeleton, hipPos, markerPositions);
+    if (runClip) animations.run = runClip;
 
     return animations;
 }
