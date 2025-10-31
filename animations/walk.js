@@ -45,7 +45,7 @@ export function createWalkAnimation(skeleton, hipPos, markerPositions) {
     const kneeFlexion = Math.PI / 2.5; // Max knee bend during swing (72 deg)
     const ankleFlexion = Math.PI / 18; // Ankle bend up (10 deg)
     const ankleExtension = -Math.PI / 12; // Ankle bend down (-15 deg)
-    const hipAbduction = -Math.PI / 36; // Slight outward hip rotation for knee clearance
+    const hipAbduction = -Math.PI / 72; // Reduced outward hip rotation for a narrower stance
 
     // Euler angles for key poses
     // Switched rotation from X-axis to Z-axis for forward motion
